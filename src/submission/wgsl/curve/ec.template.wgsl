@@ -3,12 +3,14 @@ fn fr_double(a: ptr<function, BigInt>) -> BigInt {
     bigint_double(a, &res);
     return fr_reduce(&res);
 }
-fn double_point(p1: Point) -> Point {
-    var p1x = p1.x;
-    var p1y = p1.y;
+
+fn double_point(p1: ptr<function, Point>) -> Point {
+    var p1x = (*p1).x;
+    var p1y = (*p1).y;
+    var p1z = (*p1).z;
+
     var a = montgomery_product(&p1x, &p1x);
     var b = montgomery_product(&p1y, &p1y);
-    var p1z = p1.z;
     var z1_m_z1 = montgomery_product(&p1z, &p1z);
     var c = fr_add(&z1_m_z1, &z1_m_z1);
     var p = get_p();
@@ -27,7 +29,7 @@ fn double_point(p1: Point) -> Point {
     return Point(x3, y3, t3, z3);
 }
 
-fn add_points(p1: Point, p2: Point) -> Point {
+fn add_points(p1: ptr<function, Point>, p2: ptr<function, Point>) -> Point {
     // This is add-2008-hwcd-4
     // https://eprint.iacr.org/2008/522.pdf section 3.2, p7 (8M)
     // http://hyperelliptic.org/EFD/g1p/auto-twisted-extended-1.html#addition-add-2008-hwcd-4
@@ -38,10 +40,11 @@ fn add_points(p1: Point, p2: Point) -> Point {
     // fr_add: 4
     // fr_sub: 4
 
-    var p1x = p1.x;
-    var p1y = p1.y;
-    var p2x = p2.x;
-    var p2y = p2.y;
+    var p1x = (*p1).x;
+    var p1y = (*p1).y;
+    var p2x = (*p2).x;
+    var p2y = (*p2).y;
+
     var y1_s_x2 = fr_sub(&p1y, &p1x);
     var y2_a_x2 = fr_add(&p2y, &p2x);
     var a = montgomery_product(&y1_s_x2, &y2_a_x2);
@@ -66,13 +69,14 @@ fn add_points(p1: Point, p2: Point) -> Point {
 
     var f = fr_sub(&b, &a);
 
-    var p1z = p1.z;
-    var p2t = p2.t;
+    var p1z = (*p1).z;
+    var p2t = (*p2).t;
+    var p1t = (*p1).t;
+    var p2z = (*p2).z;
+
     var z1_m_r2 = fr_double(&p1z);
     var c = montgomery_product(&z1_m_r2, &p2t);
 
-    var p1t = p1.t;
-    var p2z = p2.z;
     var t1_m_r2 = fr_double(&p1t);
     var d = montgomery_product(&t1_m_r2, &p2z);
 

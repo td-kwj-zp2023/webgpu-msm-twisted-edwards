@@ -12,6 +12,14 @@ var<storage, read> scalars: array<u32>;
 @group(0) @binding(2)
 var<storage, read_write> results: array<Point>;
 
+fn get_paf() -> Point {
+    var result: Point;
+    let r = get_r();
+    result.y = r;
+    result.z = r;
+    return result;
+}
+
 // Double-and-add algo from the ZPrize test harness
 fn double_and_add(point: Point, scalar: u32) -> Point {
     // Set result to the point at infinity
@@ -20,13 +28,15 @@ fn double_and_add(point: Point, scalar: u32) -> Point {
     var s = scalar;
     var temp = point;
 
-    while (s != 0u) {
+    let x = u32(log2(f32(s))) + 1u;
+    for (var i = 0u; i < x; i ++) {
         if ((s & 1u) == 1u) {
-            result = add_points(result, temp);
+            result = add_points(&result, &temp);
         }
-        temp = double_point(temp);
+        temp = double_point(&temp);
         s = s >> 1u;
     }
+
     return result;
 }
 
@@ -37,18 +47,15 @@ fn double_and_add_benchmark(@builtin(global_invocation_id) global_id: vec3<u32>)
     let gidy = global_id.y; 
     let id = gidx * {{ num_y_workgroups }} + gidy;
 
-    var point = points[id];
-    var scalar = scalars[id];
+    var result = points[id];
 
-    var result = point;
-
-    let cost = {{ cost }}u;
-
-    for (var i = 0u; i < cost; i ++) {
-        result = double_and_add(result, scalar);
+    for (var i = 0u; i < {{ cost }}u; i ++) {
+        result = double_and_add(result, scalars[id]);
     }
+
     results[id] = result;
 }
+/*
 
 fn negate_point(point: Point) -> Point {
     var p = get_p();
@@ -106,21 +113,14 @@ fn booth(point: Point, scalar: u32) -> Point {
     var temp = point;
     for (var i = 0u; i < max_idx + 1u; i ++) {
         if (a[i] == 1u) {
-            result = add_points(result, temp);
+            result = add_points(&result, &temp);
         } else if (a[i] == 2u) {
-            result = add_points(result, negate_point(temp));
+            var n = negate_point(temp);
+            result = add_points(&result, &temp);
         }
-        temp = double_point(temp);
+        temp = double_point(&temp);
     }
 
-    return result;
-}
-
-fn get_paf() -> Point {
-    var result: Point;
-    let r = get_r();
-    result.y = r;
-    result.z = r;
     return result;
 }
 
@@ -190,9 +190,10 @@ fn booth_new(point: Point, scalar: u32) -> Point {
 
     // Handle the zeroth and 1st digits
     if (zeroth == 1u) {
-        result = add_points(result, negate_point(temp));
+        var n = negate_point(temp);
+        result = add_points(&result, &temp);
     }
-    temp = double_point(temp);
+    temp = double_point(&temp);
 
     let mask = (1u << 30u) - 1u;
     booth = (booth & mask) + (im << 30u);
@@ -202,11 +203,12 @@ fn booth_new(point: Point, scalar: u32) -> Point {
         let x = (booth >> (i * 2)) & 3u;
 
         if (x == 1u) {
-            result = add_points(result, temp);
+            result = add_points(&result, &temp);
         } else if (x == 2u) {
-            result = add_points(result, negate_point(temp));
+            var n = negate_point(temp);
+            result = add_points(&result, &temp);
         }
-        temp = double_point(temp);
+        temp = double_point(&temp);
     }
 
     return result;
@@ -231,3 +233,4 @@ fn booth_benchmark(@builtin(global_invocation_id) global_id: vec3<u32>) {
     }
     results[id] = result;
 }
+*/
