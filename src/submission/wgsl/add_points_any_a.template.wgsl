@@ -33,7 +33,7 @@ fn get_edwards_d() -> BigInt {
     return d;
 }
 
-fn add_points(p1: Point, p2: Point) -> Point {
+fn add_points(p1: ptr<function, Point>, p2: ptr<function, Point>) -> Point {
     // This is add-2008-hwcd
     // https://eprint.iacr.org/2008/522.pdf section 3.1, p5 (9M + 2D)
     // https://hyperelliptic.org/EFD/g1p/auto-twisted-extended.html#addition-add-2008-hwcd
@@ -42,23 +42,22 @@ fn add_points(p1: Point, p2: Point) -> Point {
     // fr_add: 3
     // fr_sub: 5
 
-    var p1x = p1.x;
-    var p2x = p2.x;
+    var p1x = (*p1).x;
+    var p2x = (*p2).x;
+    var p1y = (*p1).y;
+    var p2y = (*p2).y;
+    var p1t = (*p1).t;
+    var p2t = (*p2).t;
+    var p1z = (*p1).z;
+    var p2z = (*p2).z;
+
     var a = montgomery_product(&p1x, &p2x);
-
-    var p1y = p1.y;
-    var p2y = p2.y;
     var b = montgomery_product(&p1y, &p2y);
-
-    var p1t = p1.t;
-    var p2t = p2.t;
     var t2 = montgomery_product(&p1t, &p2t);
 
     var EDWARDS_D = get_edwards_d();
     var c = montgomery_product(&EDWARDS_D, &t2);
 
-    var p1z = p1.z;
-    var p2z = p2.z;
     var d = montgomery_product(&p1z, &p2z);
 
     var xpy = fr_add(&p1x, &p1y);
@@ -87,9 +86,9 @@ fn add_points(p1: Point, p2: Point) -> Point {
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     var a = points[global_id.x];
     var b = points[global_id.x + 1u];
-    var c = add_points(a, b);
+    var c = add_points(&a, &b);
     for (var i = 1u; i < {{ cost }}; i ++) {
-        c = add_points(c, a);
+        c = add_points(&c, &a);
     }
     output[global_id.x] = c;
 }

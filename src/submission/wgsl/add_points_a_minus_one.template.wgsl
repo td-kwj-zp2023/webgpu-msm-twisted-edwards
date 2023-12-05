@@ -14,9 +14,9 @@ var<storage, read_write> output: array<Point>;
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     var a = points[global_id.x];
     var b = points[global_id.x + 1u];
-    var c = add_points(a, b);
+    var c = add_points(&a, &b);
     for (var i = 1u; i < {{ cost }}; i ++) {
-        c = add_points(c, a);
+        c = add_points(&c, &a);
     }
     output[global_id.x] = c;
 }
