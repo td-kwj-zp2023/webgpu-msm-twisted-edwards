@@ -12,9 +12,10 @@ var<storage, read> scalars: array<u32>;
 @group(0) @binding(2)
 var<storage, read_write> results: array<Point>;
 
+
 fn get_paf() -> Point {
     var result: Point;
-    let r = get_r();
+    var r = BigInt(array<u32, 20>(7973u, 8191u, 8191u, 3839u, 1584u, 8078u, 8191u, 129u, 3124u, 601u, 7094u, 6328u, 4209u, 259u, 3351u, 4579u, 7118u, 144u, 6162u, 14u));
     result.y = r;
     result.z = r;
     return result;
@@ -32,6 +33,7 @@ fn double_and_add(point: Point, scalar: u32) -> Point {
         if ((s & 1u) == 1u) {
             result = add_points(result, temp);
         }
+
         temp = double_point(temp);
         s = s >> 1u;
     }
@@ -59,7 +61,7 @@ fn double_and_add_benchmark(@builtin(global_invocation_id) global_id: vec3<u32>)
 }
 
 fn negate_point(point: Point) -> Point {
-    var p = get_p();
+    var p = BigInt(array<u32, 20>(1u, 0u, 0u, 768u, 4257u, 0u, 0u, 8154u, 2678u, 2765u, 3072u, 6255u, 4581u, 6694u, 6530u, 5290u, 6700u, 2804u, 2777u, 37u));
     var x = point.x;
     var t = point.t;
     var neg_x: BigInt;
@@ -107,9 +109,7 @@ fn booth(point: Point, scalar: u32) -> Point {
     }
 
     // Set result to the point at infinity
-    var result: Point;
-    result.y = get_r();
-    result.z = get_r();
+    var result: Point = get_paf();
 
     var temp = point;
     for (var i = 0u; i < max_idx + 1u; i ++) {
@@ -118,6 +118,7 @@ fn booth(point: Point, scalar: u32) -> Point {
         } else if (a[i] == 2u) {
             result = add_points(result, negate_point(temp));
         }
+
         temp = double_point(temp);
     }
 

@@ -12,7 +12,8 @@ fn get_p() -> BigInt {
 
 fn montgomery_product(x: ptr<function, BigInt>, y: ptr<function, BigInt>) -> BigInt {
     var s: BigInt;
-    var p = get_p();
+
+    var p = BigInt(array<u32, 20>(1u, 0u, 0u, 768u, 4257u, 0u, 0u, 8154u, 2678u, 2765u, 3072u, 6255u, 4581u, 6694u, 6530u, 5290u, 6700u, 2804u, 2777u, 37u));
 
     for (var i = 0u; i < NUM_WORDS; i ++) {
         var t = s.limbs[0] + (*x).limbs[i] * (*y).limbs[0];
