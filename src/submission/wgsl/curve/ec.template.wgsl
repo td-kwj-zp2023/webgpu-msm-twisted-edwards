@@ -12,7 +12,7 @@ fn double_point(p1: Point) -> Point {
     var p1z = p1.z;
     var z1_m_z1 = montgomery_product(&p1z, &p1z);
     var c = fr_add(&z1_m_z1, &z1_m_z1);
-    var p = get_p();
+    var p = BigInt(array<u32, 20>(1u, 0u, 0u, 768u, 4257u, 0u, 0u, 8154u, 2678u, 2765u, 3072u, 6255u, 4581u, 6694u, 6530u, 5290u, 6700u, 2804u, 2777u, 37u));
     var d = fr_sub(&p, &a);
     var x1_m_y1 = fr_add(&p1x, &p1y);
     var x1y1_m_x1y1 = montgomery_product(&x1_m_y1, &x1_m_y1);
@@ -91,6 +91,7 @@ fn add_points(p1: Point, p2: Point) -> Point {
 }
 */
 
+
 fn add_points(p1: Point, p2: Point) -> Point {
     // This is add-2008-hwcd
     // https://eprint.iacr.org/2008/522.pdf section 3.1, p5 (9M + 2D)
@@ -112,8 +113,8 @@ fn add_points(p1: Point, p2: Point) -> Point {
     var p2t = p2.t;
     var t2 = montgomery_product(&p1t, &p2t);
 
-    var EDWARDS_D = get_edwards_d();
-    var c = montgomery_product(&EDWARDS_D, &t2);
+    var edd = BigInt(array<u32, 20>(760u, 8111u, 8191u, 2047u, 2879u, 7826u, 8149u, 3887u, 7498u, 489u, 5641u, 7817u, 1758u, 6342u, 5673u, 2217u, 2688u, 7853u, 7621u, 20u));
+    var c = montgomery_product(&edd, &t2);
 
     var p1z = p1.z;
     var p2z = p2.z;
@@ -128,7 +129,8 @@ fn add_points(p1: Point, p2: Point) -> Point {
     var f = fr_sub(&d, &c);
     var g = fr_add(&d, &c);
 
-    var p = get_p();
+    var p = BigInt(array<u32, 20>(1u, 0u, 0u, 768u, 4257u, 0u, 0u, 8154u, 2678u, 2765u, 3072u, 6255u, 4581u, 6694u, 6530u, 5290u, 6700u, 2804u, 2777u, 37u));
+
     var a_neg = fr_sub(&p, &a);
 
     var h = fr_sub(&b, &a_neg);
@@ -140,6 +142,7 @@ fn add_points(p1: Point, p2: Point) -> Point {
     return Point(added_x, added_y, added_t, added_z);
 }
 
+/*
 fn get_edwards_d() -> BigInt {
     var d: BigInt;
     d.limbs[0] = 760u;
@@ -164,3 +167,4 @@ fn get_edwards_d() -> BigInt {
     d.limbs[19] = 20u;
     return d;
 }
+*/
