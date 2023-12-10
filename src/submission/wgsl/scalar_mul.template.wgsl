@@ -38,26 +38,6 @@ fn double_and_add(point: Point, scalar: u32) -> Point {
     return result;
 }
 
-@compute
-@workgroup_size({{ workgroup_size }})
-fn double_and_add_benchmark(@builtin(global_invocation_id) global_id: vec3<u32>) {
-    let gidx = global_id.x; 
-    let gidy = global_id.y; 
-    let id = gidx * {{ num_y_workgroups }}u + gidy;
-
-    var point = points[id];
-    var scalar = scalars[id];
-
-    var result = point;
-
-    let cost = {{ cost }}u;
-
-    for (var i = 0u; i < cost; i ++) {
-        result = double_and_add(result, scalar);
-    }
-    results[id] = result;
-}
-
 fn negate_point(point: Point) -> Point {
     var p = get_p();
     var x = point.x;
@@ -214,20 +194,20 @@ fn booth_new(point: Point, scalar: u32) -> Point {
 
 @compute
 @workgroup_size({{ workgroup_size }})
-fn booth_benchmark(@builtin(global_invocation_id) global_id: vec3<u32>) {
-    let gidx = global_id.x; 
-    let gidy = global_id.y; 
-    let id = gidx * {{ num_y_workgroups }}u + gidy;
-
-    var point = points[id];
-    var scalar = scalars[id];
-
-    var result = point;
-
-    let cost = {{ cost }}u;
-
-    for (var i = 0u; i < cost; i ++) {
-        result = booth(result, scalar);
+fn double_and_add_benchmark(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    var result = double_and_add(points[0], scalars[0]);
+    for (var i = 1u; i < arrayLength(&scalars); i ++) {
+        result = double_and_add(result, scalars[i]);
     }
-    results[id] = result;
+    results[0] = result;
+}
+
+@compute
+@workgroup_size({{ workgroup_size }})
+fn booth_benchmark(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    var result = booth(points[0], scalars[0]);
+    for (var i = 1u; i < arrayLength(&scalars); i ++) {
+        result = booth(result, scalars[i]);
+    }
+    results[0] = result;
 }
