@@ -48,9 +48,7 @@ export const scalar_mul_benchmarks = async (
     baseAffinePoints: BigIntPoint[],
     bigint_scalars: bigint[]
 ): Promise<{x: bigint, y: bigint}> => {
-    const cost = 1024
-
-    const num_scalars = 1
+    const num_scalars = 1024
     const scalars: number[] = []
 
     // Use a PRNG instead of system randomness so that the inputs are
@@ -75,47 +73,51 @@ export const scalar_mul_benchmarks = async (
     })
 
     // Benchmark in CPU
-    const expected = cpu_benchmark(points, scalars, cost)
+    const expected = cpu_benchmark(points, scalars)
 
     // Double-and-add method in TS
-    const double_and_add_cpu_results = double_and_add_cpu(points, scalars, cost)
+    const double_and_add_cpu_results = double_and_add_cpu(points, scalars)
 
-    assert(are_point_arr_equal(double_and_add_cpu_results, expected))
+    assert(is_point_equal(double_and_add_cpu_results, expected))
 
     // Double-and-add method in GPU
     const start = Date.now()
-    const double_and_add_gpu_results = await double_and_add_gpu(points, scalars, cost)
+    const double_and_add_gpu_results = await double_and_add_gpu(points, scalars)
     const elapsed = Date.now() - start
-    console.log(`double-and-add method (cost = ${cost}) in GPU (including data transfer) took ${elapsed}ms`)
-    assert(are_point_arr_equal(double_and_add_gpu_results, expected))
+    console.log(`double-and-add method (${num_scalars} inputs) in GPU (including data transfer) took ${elapsed}ms`)
 
+    assert(is_point_equal(double_and_add_gpu_results, expected))
+
+    /*
     // 2^w-ary method in CPU
-    const two_w_ary_results = two_w_ary_cpu(points, scalars, cost)
-    assert(are_point_arr_equal(two_w_ary_results, expected))
+    const two_w_ary_results = two_w_ary_cpu(points, scalars)
+    assert(is_point_equal(two_w_ary_results, expected))
+    */
 
     // TODO: 2^w-ary method in GPU
 
     // TODO: Sliding window method
-    //const sliding_window_results = sliding_window_cpu(points, scalars, cost)
-    //assert(are_point_arr_equal(sliding_window_results, expected))
+    //const sliding_window_results = sliding_window_cpu(points, scalars)
+    //assert(is_point_equal(sliding_window_results, expected))
 
     // TODO: NAF method
 
     // TODO: wNAF method
 
     // Booth encoding method in CPU
-    const booth_cpu_results = await booth_cpu(points, scalars, cost)
-    assert(are_point_arr_equal(booth_cpu_results, expected))
+    const booth_cpu_results = await booth_cpu(points, scalars)
+    assert(is_point_equal(booth_cpu_results, expected))
 
     // Booth encoding method in GPU
     const start_booth = Date.now()
-    const booth_gpu_results = await booth_gpu(points, scalars, cost)
+    const booth_gpu_results = await booth_gpu(points, scalars)
     const elapsed_booth = Date.now() - start_booth
-    console.log(`booth method (cost = ${cost}) in GPU (including data transfer) took ${elapsed_booth}ms`)
-    assert(are_point_arr_equal(booth_gpu_results, expected))
+    console.log(`booth method (${num_scalars} inputs) in GPU (including data transfer) took ${elapsed_booth}ms`)
 
-    const booth2_cpu_results = await booth_cpu(points, scalars, cost)
-    assert(are_point_arr_equal(booth2_cpu_results, expected))
+    assert(is_point_equal(booth_gpu_results, expected))
+
+    const booth2_cpu_results = await booth_cpu(points, scalars)
+    assert(is_point_equal(booth2_cpu_results, expected))
 
     /*
     const scalar = 1123
@@ -125,7 +127,7 @@ export const scalar_mul_benchmarks = async (
     assert(booth_result.toAffine().x === expected_result.toAffine().x)
     assert(booth2_result.toAffine().x === expected_result.toAffine().x)
 
-    const booth_gpu_r = await booth_gpu([points[0]], [scalar], cost)
+    const booth_gpu_r = await booth_gpu([points[0]], [scalar])
     console.log(booth_gpu_r[0].toAffine())
     assert(booth_gpu_r[0].toAffine().x === expected_result.toAffine().x)
     */
@@ -145,19 +147,13 @@ const copyPoint = (point: ExtPointType): ExtPointType => {
 const cpu_benchmark = (
     points: ExtPointType[],
     scalars: number[],
-    cost: number,
-): ExtPointType[] => {
-    const results: ExtPointType[] = []
-
-    for (let i = 0; i < scalars.length; i ++) {
-        let result = copyPoint(points[i])
-        for (let j = 0; j < cost; j ++) {
-            result = result.multiply(BigInt(scalars[i]))
-        }
-        results.push(result)
+): ExtPointType => {
+    let result = points[0].multiply(BigInt(scalars[0]))
+    for (let i = 1; i < scalars.length; i ++) {
+        result = result.multiply(BigInt(scalars[i]))
     }
 
-    return results
+    return result
 } 
 
 // On average, requires (n−1) doublings and n/2 additions
@@ -183,19 +179,13 @@ const double_and_add = (
 const booth_cpu = (
     points: ExtPointType[],
     scalars: number[],
-    cost: number,
-): ExtPointType[] => {
-    const results: ExtPointType[] = []
-
-    for (let i = 0; i < scalars.length; i ++) {
-        let result = copyPoint(points[i])
-        for (let j = 0; j < cost; j ++) {
-            result = booth2(result, scalars[i])
-        }
-        results.push(result)
+): ExtPointType => {
+    let result = booth(points[0], scalars[0])
+    for (let i = 1; i < scalars.length; i ++) {
+        result = booth(result, scalars[i])
     }
 
-    return results
+    return result
 }
 
 const booth2 = (
@@ -344,16 +334,12 @@ const booth = (
 //const sliding_window_cpu = (
     //points: ExtPointType[],
     //scalars: number[],
-    //cost: number,
     //w = 3,
 //): ExtPointType[] => {
     //const results: ExtPointType[] = []
 
     //for (let i = 0; i < scalars.length; i ++) {
-        //let result = copyPoint(points[i])
-        //for (let j = 0; j < cost; j ++) {
-            //result = sliding_window(result, scalars[i], w)
-        //}
+        //const result = sliding_window(points[i], scalars[i], w)
         //results.push(result)
     //}
 
@@ -411,16 +397,13 @@ const booth = (
 const two_w_ary_cpu = (
     points: ExtPointType[],
     scalars: number[],
-    cost: number,
     w = 3,
 ): ExtPointType[] => {
     const results: ExtPointType[] = []
 
-    for (let i = 0; i < scalars.length; i ++) {
-        let result = copyPoint(points[i])
-        for (let j = 0; j < cost; j ++) {
-            result = two_w_ary(result, scalars[i], w)
-        }
+    let result = two_w_ary(points[0], scalars[0], w)
+    for (let i = 1; i < scalars.length; i ++) {
+        result = two_w_ary(result, scalars[i], w)
         results.push(result)
     }
 
@@ -460,43 +443,34 @@ const two_w_ary = (
 const double_and_add_cpu = (
     points: ExtPointType[],
     scalars: number[],
-    cost: number,
-): ExtPointType[] => {
-    const results: ExtPointType[] = []
-
-    for (let i = 0; i < scalars.length; i ++) {
-        let result = copyPoint(points[i])
-        for (let j = 0; j < cost; j ++) {
-            result = double_and_add(result, scalars[i])
-        }
-        results.push(result)
+): ExtPointType => {
+    let result = double_and_add(points[0], scalars[0])
+    for (let i = 1; i < scalars.length; i ++) {
+        result = double_and_add(result, scalars[i])
     }
 
-    return results
+    return result
 }
 
 const booth_gpu = async(
     points: ExtPointType[],
     scalars: number[],
-    cost: number,
-): Promise<ExtPointType[]> => {
-    return run_in_gpu(points, scalars, cost, 'booth_benchmark')
+): Promise<ExtPointType> => {
+    return run_in_gpu(points, scalars, 'booth_benchmark')
 }
 
 const double_and_add_gpu = async(
     points: ExtPointType[],
     scalars: number[],
-    cost: number,
-): Promise<ExtPointType[]> => {
-    return run_in_gpu(points, scalars, cost, 'double_and_add_benchmark')
+): Promise<ExtPointType> => {
+    return run_in_gpu(points, scalars, 'double_and_add_benchmark')
 }
 
 const run_in_gpu = async(
     points: ExtPointType[],
     scalars: number[],
-    cost: number,
     entrypoint: string,
-): Promise<ExtPointType[]> => {
+): Promise<ExtPointType> => {
     const params = compute_misc_params(p, word_size)
     const n0 = params.n0
     const num_words = params.num_words
@@ -505,8 +479,8 @@ const run_in_gpu = async(
 
     const input_size = scalars.length
     const workgroup_size = 1
-    const num_x_workgroups = 256
-    const num_y_workgroups = Math.ceil(input_size / workgroup_size / num_x_workgroups)
+    const num_x_workgroups = 1
+    const num_y_workgroups = 1//Math.ceil(input_size / workgroup_size / num_x_workgroups)
 
     const mont_points: BigIntPoint[] = []
     for (const pt of points) {
@@ -555,7 +529,6 @@ const run_in_gpu = async(
             two_pow_word_size: BigInt(2) ** BigInt(word_size),
             workgroup_size,
             num_y_workgroups,
-            cost,
             num_words_plus_one: num_words + 1,
             num_words_mul_two: num_words * 2,
         },
@@ -588,21 +561,26 @@ const run_in_gpu = async(
         [results_sb],
     )
 
-    const d = u8s_to_points(results_data[0], num_words, word_size)
-    const results_points = []
-    for (const p of d) {
-        const pt = fieldMath.createPoint(
-            fieldMath.Fp.mul(p.x, rinv),
-            fieldMath.Fp.mul(p.y, rinv),
-            fieldMath.Fp.mul(p.t, rinv),
-            fieldMath.Fp.mul(p.z, rinv),
-        )
-        results_points.push(pt)
-    }
-
     device.destroy()
 
-    return results_points
+    const d = u8s_to_points(results_data[0], num_words, word_size)
+
+    return fieldMath.createPoint(
+        fieldMath.Fp.mul(d[0].x, rinv),
+        fieldMath.Fp.mul(d[0].y, rinv),
+        fieldMath.Fp.mul(d[0].t, rinv),
+        fieldMath.Fp.mul(d[0].z, rinv),
+    )
+}
+
+const is_point_equal = (
+    a: ExtPointType,
+    b: ExtPointType,
+): boolean => {
+    const aa = a.toAffine()
+    const ba = b.toAffine()
+
+    return aa.x === ba.x && aa.y === ba.y
 }
 
 const are_point_arr_equal = (
@@ -614,9 +592,7 @@ const are_point_arr_equal = (
     }
 
     for (let i = 0; i < a.length; i ++) {
-        const aa = a[i].toAffine()
-        const ba = b[i].toAffine()
-        if (aa.x !== ba.x || aa.y !== ba.y) {
+        if (!is_point_equal(a[i], b[i])) {
             console.log(`mismatch at ${i}`)
             return false
         }
