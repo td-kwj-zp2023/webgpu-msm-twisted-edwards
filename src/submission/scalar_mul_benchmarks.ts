@@ -30,6 +30,7 @@ import ec_funcs from './wgsl/curve/ec.template.wgsl'
 import curve_parameters from './wgsl/curve/parameters.template.wgsl'
 import montgomery_product_funcs from './wgsl/montgomery/mont_pro_product.template.wgsl'
 import scalar_mul_shader from './wgsl/scalar_mul.template.wgsl'
+import { wnaf_encode } from './wnaf'
 
 const fieldMath = new FieldMath();
 
@@ -48,7 +49,7 @@ export const scalar_mul_benchmarks = async (
     baseAffinePoints: BigIntPoint[],
     bigint_scalars: bigint[]
 ): Promise<{x: bigint, y: bigint}> => {
-    const num_scalars = 1024
+    const num_scalars = 1
     const scalars: number[] = []
 
     // Use a PRNG instead of system randomness so that the inputs are
@@ -75,6 +76,7 @@ export const scalar_mul_benchmarks = async (
     // Benchmark in CPU
     const expected = cpu_benchmark(points, scalars)
 
+    /*
     // Double-and-add method in TS
     const double_and_add_cpu_results = double_and_add_cpu(points, scalars)
 
@@ -88,7 +90,6 @@ export const scalar_mul_benchmarks = async (
 
     assert(is_point_equal(double_and_add_gpu_results, expected))
 
-    /*
     // 2^w-ary method in CPU
     const two_w_ary_results = two_w_ary_cpu(points, scalars)
     assert(is_point_equal(two_w_ary_results, expected))
@@ -103,7 +104,15 @@ export const scalar_mul_benchmarks = async (
     // TODO: NAF method
 
     // TODO: wNAF method
+    const five_wnaf_cpu_results = await five_wnaf_cpu(points, scalars)
+    assert(is_point_equal(five_wnaf_cpu_results, expected))
+    const start_five_wnaf = Date.now()
+    const five_wnaf_gpu_results = await five_wnaf_gpu(points, scalars)
+    const elapsed_five_wnaf = Date.now() - start_five_wnaf
+    console.log(`five_wnaf method (${num_scalars} inputs) in GPU (including data transfer) took ${elapsed_five_wnaf}ms`)
+    assert(is_point_equal(five_wnaf_gpu_results, expected))
 
+    /*
     // Booth encoding method in CPU
     const booth_cpu_results = await booth_cpu(points, scalars)
     assert(is_point_equal(booth_cpu_results, expected))
@@ -119,7 +128,6 @@ export const scalar_mul_benchmarks = async (
     const booth2_cpu_results = await booth_cpu(points, scalars)
     assert(is_point_equal(booth2_cpu_results, expected))
 
-    /*
     const scalar = 1123
     const booth_result = booth(points[0], scalar)
     const booth2_result = booth2(points[0], scalar)
@@ -173,6 +181,18 @@ const double_and_add = (
         temp = temp.double()
         scalar_iter = Number(BigInt(scalar_iter) >> BigInt(1))
     }
+    return result
+}
+
+const five_wnaf_cpu = (
+    points: ExtPointType[],
+    scalars: number[],
+): ExtPointType => {
+    let result = five_naf_scalar_mul(points[0], scalars[0])
+    for (let i = 1; i < scalars.length; i ++) {
+        result = five_naf_scalar_mul(result, scalars[i])
+    }
+
     return result
 }
 
@@ -309,7 +329,6 @@ const booth = (
     if (a[0] === 1) {
         a[0] = 2
     }
-    //console.log(a)
 
     // Find the last 1
     let max_idx = a.length - 1
@@ -329,6 +348,40 @@ const booth = (
     }
 
     return result
+}
+
+export const five_naf_scalar_mul = (
+    point: ExtPointType,
+    scalar: number,
+) => {
+    const w = 5
+    // From "Guide to Elliptic Curve Cryptography" by Darrel Hankerson, Scott
+    // Vanstone, and Alfred Menezes, algorithm 3.36
+    const encoding = wnaf_encode(scalar, w)
+    const precomputed: ExtPointType[] = [point]
+
+    const two_p = point.double()
+    for (let i = 3; i < (2 ** (w-1)); i += 2) {
+        const pt = precomputed[(i - 3) / 2].add(two_p)
+        precomputed.push(pt)
+    }
+
+    let q = ZERO_POINT
+    for (let i = encoding.length - 1; i >= 0; i --) {
+        q = q.double()
+        if (encoding[i] !== 0) {
+            const e = (Math.abs(encoding[i]) - 1) / 2
+
+            let p = precomputed[e]
+
+            if (encoding[i] < 0) { 
+                p = p.negate()
+            }
+
+            q = q.add(p)
+        }
+    }
+    return q
 }
 
 //const sliding_window_cpu = (
@@ -464,6 +517,13 @@ const double_and_add_gpu = async(
     scalars: number[],
 ): Promise<ExtPointType> => {
     return run_in_gpu(points, scalars, 'double_and_add_benchmark')
+}
+
+const five_wnaf_gpu = async(
+    points: ExtPointType[],
+    scalars: number[],
+): Promise<ExtPointType> => {
+    return run_in_gpu(points, scalars, 'five_wnaf_benchmark')
 }
 
 const run_in_gpu = async(

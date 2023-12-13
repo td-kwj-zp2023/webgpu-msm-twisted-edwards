@@ -192,6 +192,72 @@ fn booth_new(point: Point, scalar: u32) -> Point {
     return result;
 }
 
+fn mods(scalar: u32, w: u32) -> i32 {
+    // From "Guide to Elliptic Curve Cryptography" by Darrel Hankerson, Scott
+    // Vanstone, and Alfred Menezes, p99
+    // u = scalar mods 2^w 
+    // where u = scalar mod 2^w
+    // and -2^(w-1) <= u <= 2^(w-1)
+    
+    let two_w = 32i;
+    let two_w_m_1 = 16i;
+    var u = i32(scalar % u32(two_w));
+    if (u > two_w_m_1) {
+        let d = u - two_w_m_1;
+        u = -two_w_m_1 + d;
+    }
+    return u;
+}
+
+fn wnaf_encode(s: u32, w: u32) -> array<i32, 33> {
+    // From "Guide to Elliptic Curve Cryptography" by Darrel Hankerson, Scott
+    // Vanstone, and Alfred Menezes, algorithm 3.35
+    var scalar = s;
+    var result: array<i32, 33>;
+    var i = 0u;
+    while (scalar >= 1u) {
+        var ki = 0i;
+        if (scalar % 2u == 1u) {
+            ki = mods(scalar, w);
+            scalar = u32(i32(scalar) - ki);
+        }
+        result[i + 1u] = ki;
+        scalar = scalar / 2;
+        i ++;
+    }
+    result[0] = i32(i);
+    return result;
+}
+
+// 5-wnaf encoding method
+fn five_wnaf(point: Point, scalar: u32) -> Point {
+    let w = 5u;
+    var encoding = wnaf_encode(scalar, w);
+    var precomputed: array<Point, 8>;
+    precomputed[0] = point;
+    let two_p = double_point(point);
+    for (var i = 1u; i < 8u; i ++) {
+        precomputed[i] = add_points(precomputed[i - 1u], two_p);
+    }
+
+    var q = get_paf();
+    for (var i = encoding[0]; i >= 0; i --) {
+        q = double_point(q);
+        if (encoding[i] != 0i) {
+            let e = u32(abs(encoding[i]) - 1i) / 2u;
+
+            var p = precomputed[e];
+
+            if (encoding[i] < 0i) { 
+                p = negate_point(p);
+            }
+
+            q = add_points(q, p);
+        }
+    }
+    return q;
+}
+
 @compute
 @workgroup_size({{ workgroup_size }})
 fn double_and_add_benchmark(@builtin(global_invocation_id) global_id: vec3<u32>) {
@@ -208,6 +274,16 @@ fn booth_benchmark(@builtin(global_invocation_id) global_id: vec3<u32>) {
     var result = booth(points[0], scalars[0]);
     for (var i = 1u; i < arrayLength(&scalars); i ++) {
         result = booth(result, scalars[i]);
+    }
+    results[0] = result;
+}
+
+@compute
+@workgroup_size({{ workgroup_size }})
+fn five_wnaf_benchmark(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    var result = five_wnaf(points[0], scalars[0]);
+    for (var i = 1u; i < arrayLength(&scalars); i ++) {
+        result = five_wnaf(result, scalars[i]);
     }
     results[0] = result;
 }
