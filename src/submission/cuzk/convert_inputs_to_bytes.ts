@@ -4,7 +4,10 @@ import { BigIntPoint } from "../../reference/types"
 export const convert_inputs_to_bytes = (
     baseAffinePoints: BigIntPoint[],
     scalars: bigint[]
-) => {
+): {
+    x_y_coords_bytes: Uint8Array,
+    scalars_bytes: Uint8Array,
+}=> {
     const input_size = baseAffinePoints.length
     // An affine point only contains X and Y points.
     const x_y_coords = Array(input_size * 2).fill(BigInt(0))
