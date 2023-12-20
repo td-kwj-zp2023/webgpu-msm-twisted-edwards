@@ -135,8 +135,8 @@ export class ShaderManager {
     }
 
     gen_preaggregation_stage_1_shader(
-        num_y_workgroups: number,
         workgroup_size: number,
+        num_y_workgroups: number,
     ) {
         const p_bitlength = this.p.toString(2).length
         const slack = this.num_words * this.word_size - p_bitlength
@@ -171,8 +171,8 @@ export class ShaderManager {
     }
     
     gen_preaggregation_stage_2_shader(
-        num_y_workgroups: number,
         workgroup_size: number,
+        num_y_workgroups: number,
     ) {
         const shaderCode = mustache.render(
             preaggregation_stage_2_shader,
@@ -186,8 +186,8 @@ export class ShaderManager {
     }
     
     gen_compute_row_ptr_shader(
-        num_y_workgroups: number,
         workgroup_size: number,
+        num_y_workgroups: number,
         num_chunks: number,
         max_row_size: number,
     ) {

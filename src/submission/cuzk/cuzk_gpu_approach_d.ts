@@ -27,6 +27,7 @@ export const cuzk_gpu_approach_d = async (
     baseAffinePoints: BigIntPoint[],
     scalars: bigint[]
 ): Promise<{x: bigint, y: bigint}> => {
+    /*
     const input_size = scalars.length
     const num_subtasks = 16
 
@@ -159,6 +160,7 @@ export const cuzk_gpu_approach_d = async (
     }
     console.log(`all_precomputation for ${num_subtasks} subtasks took: ${total_precomputation_ms}ms`)
     console.log(`Data transfer from CPU to GPU: ${total_cpu_to_gpu_data} bytes (${total_cpu_to_gpu_data / 1024 / 1024} MB)`)
+    */
 
     return { x: BigInt(1), y: BigInt(0) }
 }
