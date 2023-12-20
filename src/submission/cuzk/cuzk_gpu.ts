@@ -25,6 +25,7 @@ import { precompile_shaders } from './precompile_shaders'
 import { convert_inputs_to_bytes } from './convert_inputs_to_bytes'
 
 import { ShaderManager } from '../shader_manager'
+import { convertInputsToBytesWorker, precompileShadersWorker } from "./workers/worker"
 
 const fieldMath = new FieldMath()
 
@@ -118,18 +119,38 @@ export const cuzk_gpu = async (
         max_row_size,
     )
 
-    // Convert inputs to bytes
-    const start = Date.now()
-    const { x_y_coords_bytes, scalars_bytes } = convert_inputs_to_bytes(
-        baseAffinePoints, scalars
-    )
-    const elapsed = Date.now() - start
-    console.log(`converting inputs to bytes took ${elapsed}ms`)
+    /*
+    let x_y_coords_bytes
+    let scalars_bytes
+    if (input_size >= 2 ** 19 && false) {
+        // Perform shader precompilation
+        const start = Date.now()
+        const workerPromises = []
 
-    // TODO: do this in parallel with convert_inputs_to_bytes using Web Workers
-    // Naively precompile shaders just to measure compilation time.
-    const start_precompile = Date.now()
-    await precompile_shaders(
+        workerPromises.push(convertInputsToBytesWorker(baseAffinePoints, scalars))
+        workerPromises.push(precompileShadersWorker(
+            convert_point_coords_shader,
+            convert_point_coords_y_workgroups,
+            decompose_scalars_shader,
+            decompose_scalars_y_workgroups,
+            csr_precompute_shader,
+            preaggregation_stage_1_shader,
+            preaggregation_stage_1_y_workgroups,
+        ))
+
+        const results = await Promise.all(workerPromises)
+        x_y_coords_bytes = results[0].x_y_coords_bytes
+        scalars_bytes = results[0].scalars_bytes
+        const elapsed = Date.now() - start
+        console.log(`shader precompilation and inputs conversion to bytes took ${elapsed}ms including WebWorker overhead`)
+    } else {
+        const r = convert_inputs_to_bytes(
+            baseAffinePoints, scalars
+        )
+        x_y_coords_bytes = r.x_y_coords_bytes
+        scalars_bytes = r.scalars_bytes
+    }
+    precompile_shaders(
         convert_point_coords_shader,
         convert_point_coords_y_workgroups,
         decompose_scalars_shader,
@@ -138,8 +159,14 @@ export const cuzk_gpu = async (
         preaggregation_stage_1_shader,
         preaggregation_stage_1_y_workgroups,
     )
-    const elapsed_precompile = Date.now() - start_precompile
-    console.log(`Precompilation took ${elapsed_precompile}ms`)
+    */
+
+    const { x_y_coords_bytes, scalars_bytes } = convert_inputs_to_bytes(
+        baseAffinePoints, scalars
+    )
+    //const start = Date.now()
+    //const elapsed = Date.now() - start
+    //console.log(`shader precompilation and inputs conversion to bytes took ${elapsed}ms`)
 
     // Each pass must use the same GPUDevice and GPUCommandEncoder, or else
     // storage buffers can't be reused across compute passes

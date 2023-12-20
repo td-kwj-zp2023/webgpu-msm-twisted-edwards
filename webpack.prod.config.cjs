@@ -76,6 +76,7 @@ const workerConfig = {
   entry: {
     wasmMSM: './src/workers/wasmMSM.ts',
     webworkers: './src/submission/cuzk/workers/csrSparseMatrixWorker.ts',
+    convert_inputs_worker: './src/submission/cuzk/workers/convertInputsWorker.ts',
   },
   output: {
     pathinfo: false,
