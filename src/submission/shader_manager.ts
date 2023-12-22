@@ -5,6 +5,7 @@ import gen_csr_precompute_shader from './wgsl/gen_csr_precompute.template.wgsl'
 import preaggregation_stage_1_shader from './wgsl/preaggregation_stage_1.template.wgsl'
 import preaggregation_stage_2_shader from './wgsl/preaggregation_stage_2.template.wgsl'
 import compute_row_ptr_shader from './wgsl/compute_row_ptr_shader.template.wgsl'
+import transpose_serial_shader from './wgsl/transpose_serial.wgsl'
 
 import structs from './wgsl/struct/structs.template.wgsl'
 import bigint_funcs from './wgsl/bigint/bigint.template.wgsl'
@@ -200,6 +201,17 @@ export class ShaderManager {
                 max_row_size,
             },
             { },
+        )
+        return shaderCode
+    }
+
+    gen_transpose_shader(
+        num_cols: number,
+    ) {
+        const shaderCode = mustache.render(
+            transpose_serial_shader,
+            { num_cols },
+            {},
         )
         return shaderCode
     }
