@@ -91,7 +91,7 @@ export const cuzk_gpu = async (
     const commandEncoder = device.createCommandEncoder()
 
     // Convert the affine points to Montgomery form in the GPU
-    const { point_x_y_sb, point_t_z_sb } =
+    const { point_x_sb, point_y_sb } =
         await convert_point_coords_to_mont_gpu(
             device,
             commandEncoder,
@@ -112,6 +112,7 @@ export const cuzk_gpu = async (
     )
     
     for (let subtask_idx = 0; subtask_idx < num_subtasks; subtask_idx ++) {
+        /*
         // use debug_idx to debug any particular subtask_idx
         const debug_idx = 0
 
@@ -178,6 +179,7 @@ export const cuzk_gpu = async (
             new_scalar_chunks_sb,
             false,
         )
+        */
 
 
         //if (debug_idx === subtask_idx) { break }
@@ -217,32 +219,36 @@ export const convert_point_coords_to_mont_gpu = async (
     word_size: number,
     debug = false,
 ): Promise<{
-    point_x_y_sb: GPUBuffer,
-    point_t_z_sb: GPUBuffer,
+    point_x_sb: GPUBuffer,
+    point_y_sb: GPUBuffer,
 }> => {
     const input_size = baseAffinePoints.length
 
     // An affine point only contains X and Y points.
-    const x_y_coords = Array(input_size * 2).fill(BigInt(0))
+    const x_coords = Array(input_size).fill(BigInt(0))
+    const y_coords = Array(input_size).fill(BigInt(0))
     for (let i = 0; i < input_size; i ++) {
-        x_y_coords[i * 2] = baseAffinePoints[i].x
-        x_y_coords[i * 2 + 1] = baseAffinePoints[i].y
+        x_coords[i] = baseAffinePoints[i].x
+        y_coords[i] = baseAffinePoints[i].y
     }
 
     // Convert points to bytes (performs ~2x faster than
     // `bigints_to_16_bit_words_for_gpu`)
-    const x_y_coords_bytes = bigints_to_u8_for_gpu(x_y_coords, 16, 16)
+    const x_coords_bytes = bigints_to_u8_for_gpu(x_coords, 16, 16)
+    const y_coords_bytes = bigints_to_u8_for_gpu(y_coords, 16, 16)
 
     // Input buffers
-    const x_y_coords_sb = create_and_write_sb(device, x_y_coords_bytes)
+    const x_coords_sb = create_and_write_sb(device, x_coords_bytes)
+    const y_coords_sb = create_and_write_sb(device, y_coords_bytes)
 
     // Output buffers
-    const point_x_y_sb = create_sb(device, input_size * 2 * num_words * 4)
-    const point_t_z_sb = create_sb(device, input_size * 2 * num_words * 4)
+    const point_x_sb = create_sb(device, input_size * num_words * 4)
+    const point_y_sb = create_sb(device, input_size * num_words * 4)
 
     const bindGroupLayout = create_bind_group_layout(
         device,
         [
+            'read-only-storage',
             'read-only-storage',
             'storage',
             'storage',
@@ -252,9 +258,10 @@ export const convert_point_coords_to_mont_gpu = async (
         device,
         bindGroupLayout,
         [
-            x_y_coords_sb,
-            point_x_y_sb,
-            point_t_z_sb,
+            x_coords_sb,
+            y_coords_sb,
+            point_x_sb,
+            point_y_sb,
         ],
     )
 
@@ -274,32 +281,28 @@ export const convert_point_coords_to_mont_gpu = async (
         'main',
     )
 
-    execute_pipeline(commandEncoder, computePipeline, bindGroup, num_x_workgroups, num_y_workgroups, 1);
+    execute_pipeline(commandEncoder, computePipeline, bindGroup, num_x_workgroups, num_y_workgroups, 1)
 
     if (debug) {
         const data = await read_from_gpu(
             device,
             commandEncoder,
             [
-                point_x_y_sb,
-                point_t_z_sb,
+                point_x_sb,
+                point_y_sb,
             ],
         )
         
-        const computed_x_y_coords = u8s_to_bigints(data[0], num_words, word_size)
-        const computed_t_z_coords = u8s_to_bigints(data[1], num_words, word_size)
+        const computed_x_coords = u8s_to_bigints(data[0], num_words, word_size)
+        const computed_y_coords = u8s_to_bigints(data[1], num_words, word_size)
 
         for (let i = 0; i < input_size; i ++) {
             const expected_x = baseAffinePoints[i].x * r % p
             const expected_y = baseAffinePoints[i].y * r % p
-            const expected_t = (baseAffinePoints[i].x * baseAffinePoints[i].y * r) % p
-            const expected_z = r % p
 
             if (!(
-                expected_x === computed_x_y_coords[i * 2] 
-                && expected_y === computed_x_y_coords[i * 2 + 1] 
-                && expected_t === computed_t_z_coords[i * 2] 
-                && expected_z === computed_t_z_coords[i * 2 + 1]
+                expected_x === computed_x_coords[i] 
+                && expected_y === computed_y_coords[i] 
             )) {
                 console.log('mismatch at', i)
                 debugger
@@ -308,7 +311,7 @@ export const convert_point_coords_to_mont_gpu = async (
         }
     }
 
-    return { point_x_y_sb, point_t_z_sb }
+    return { point_x_sb, point_y_sb }
 }
 
 const genConvertPointCoordsShaderCode = (
