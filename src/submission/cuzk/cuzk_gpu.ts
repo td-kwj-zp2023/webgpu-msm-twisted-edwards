@@ -76,7 +76,7 @@ export const cuzk_gpu = async (
     const num_subtasks = Math.ceil(256 / chunk_size)
 
     // The number of scalar chunks per sparse matrix.
-    const num_chunks_per_subtask = input_size / num_subtasks
+    const num_chunks = input_size / num_subtasks
 
     // The number of rows per sparse matrix.
     const num_rows_per_subtask = 256
@@ -110,6 +110,11 @@ export const cuzk_gpu = async (
         chunk_size,
         false,
     )
+
+    const new_point_x_sb = create_sb(device, input_size * num_words * 4)
+    const new_point_y_sb = create_sb(device, input_size * num_words * 4)
+    const new_point_t_sb = create_sb(device, input_size * num_words * 4)
+    const new_point_z_sb = create_sb(device, input_size * num_words * 4)
     
     for (let subtask_idx = 0; subtask_idx < num_subtasks; subtask_idx ++) {
         // use debug_idx to debug any particular subtask_idx
@@ -132,41 +137,48 @@ export const cuzk_gpu = async (
             false,
         )
 
-        /*
-        const {
-            new_point_x_y_sb,
-            new_point_t_z_sb,
-        } = await pre_aggregation_stage_1_gpu(
+        //const {
+            //new_point_x_sb,
+            //new_point_y_sb,
+            //new_point_t_sb,
+            //new_point_z_sb,
+        //} = await pre_aggregation_stage_1_gpu(
+        await pre_aggregation_stage_1_gpu(
             device,
             commandEncoder,
             input_size,
-            point_x_y_sb,
-            point_t_z_sb,
-            new_point_indices_sb,
-            cluster_start_indices_sb,
-            cluster_end_indices_sb,
+            point_x_sb,
+            point_y_sb,
+            new_point_x_sb,
+            new_point_y_sb,
+            new_point_t_sb,
+            new_point_z_sb,
+            cluster_and_new_point_indices_sb,
+            num_chunks,
             false,
         )
 
         const new_scalar_chunks_sb = await pre_aggregation_stage_2_gpu(
             device,
             commandEncoder,
-            num_chunks_per_subtask,
+            num_chunks,
             scalar_chunks_sb,
-            cluster_start_indices_sb,
-            new_point_indices_sb,
+            cluster_and_new_point_indices_sb,
             false,
         )
 
+        /*
         const row_ptr_sb = await compute_row_ptr(
             device,
             commandEncoder,
             input_size,
             num_subtasks,
             num_rows_per_subtask,
-            new_point_indices_sb,
-            false,
+            cluster_and_new_point_indices_sb,
+            //false,
+            debug_idx === subtask_idx,
         )
+        if (debug_idx === subtask_idx) { break }
 
         const transpose_sb = await transpose_gpu(
             device,
@@ -588,6 +600,7 @@ export const csr_precompute_gpu = async (
             cluster_and_new_point_indices,
         )
     }
+
     return { cluster_and_new_point_indices_sb }
 }
 
@@ -716,27 +729,29 @@ export const pre_aggregation_stage_1_gpu = async (
     device: GPUDevice,
     commandEncoder: GPUCommandEncoder,
     input_size: number,
-    point_x_y_sb: GPUBuffer,
-    point_t_z_sb: GPUBuffer,
-    new_point_indices_sb: GPUBuffer,
-    cluster_start_indices_sb: GPUBuffer,
-    cluster_end_indices_sb: GPUBuffer,
+    point_x_sb: GPUBuffer,
+    point_y_sb: GPUBuffer,
+    new_point_x_sb: GPUBuffer,
+    new_point_y_sb: GPUBuffer,
+    new_point_t_sb: GPUBuffer,
+    new_point_z_sb: GPUBuffer,
+    cluster_and_new_point_indices_sb: GPUBuffer,
+    num_chunks: number,
     debug = false,
 ): Promise<{
-    new_point_x_y_sb: GPUBuffer,
-    new_point_t_z_sb: GPUBuffer,
+    new_point_x_sb: GPUBuffer,
+    new_point_y_sb: GPUBuffer,
+    new_point_t_sb: GPUBuffer,
+    new_point_z_sb: GPUBuffer,
 }> => {
-    const new_point_x_y_sb = create_sb(device, input_size * 2 * num_words * 4)
-    const new_point_t_z_sb = create_sb(device, input_size * 2 * num_words * 4)
-
     const bindGroupLayout = create_bind_group_layout(
         device,
         [
             'read-only-storage',
             'read-only-storage',
             'read-only-storage',
-            'read-only-storage',
-            'read-only-storage',
+            'storage',
+            'storage',
             'storage',
             'storage',
         ],
@@ -745,13 +760,13 @@ export const pre_aggregation_stage_1_gpu = async (
         device,
         bindGroupLayout,
         [
-            point_x_y_sb,
-            point_t_z_sb,
-            new_point_indices_sb,
-            cluster_start_indices_sb,
-            cluster_end_indices_sb,
-            new_point_x_y_sb,
-            new_point_t_z_sb,
+            point_x_sb,
+            point_y_sb,
+            cluster_and_new_point_indices_sb,
+            new_point_x_sb,
+            new_point_y_sb,
+            new_point_t_sb,
+            new_point_z_sb,
         ],
     )
 
@@ -762,6 +777,7 @@ export const pre_aggregation_stage_1_gpu = async (
     const shaderCode = genPreaggregationStage1ShaderCode(
         num_y_workgroups,
         workgroup_size,
+        num_chunks,
     )
 
     const computePipeline = await create_compute_pipeline(
@@ -778,58 +794,66 @@ export const pre_aggregation_stage_1_gpu = async (
             device,
             commandEncoder,
             [
-                point_x_y_sb,
-                point_t_z_sb,
-                new_point_indices_sb,
-                cluster_start_indices_sb,
-                cluster_end_indices_sb,
-                new_point_x_y_sb,
-                new_point_t_z_sb,
+                point_x_sb,
+                point_y_sb,
+                cluster_and_new_point_indices_sb,
+                new_point_x_sb,
+                new_point_y_sb,
+                new_point_t_sb,
+                new_point_z_sb,
             ],
         )
 
-        const point_x_y = u8s_to_bigints(data[0], num_words, word_size)
-        const point_t_z = u8s_to_bigints(data[1], num_words, word_size)
-        const new_point_indices = u8s_to_numbers(data[2])
-        const cluster_start_indices = u8s_to_numbers(data[3])
-        const cluster_end_indices = u8s_to_numbers(data[4])
-        const new_point_x_y = u8s_to_bigints(data[5], num_words, word_size)
-        const new_point_t_z = u8s_to_bigints(data[6], num_words, word_size)
+        const point_x = u8s_to_bigints(data[0], num_words, word_size)
+        const point_y = u8s_to_bigints(data[1], num_words, word_size)
+        const cluster_and_new_point_indices = u8s_to_numbers(data[2])
+        const new_point_x = u8s_to_bigints(data[3], num_words, word_size)
+        const new_point_y = u8s_to_bigints(data[4], num_words, word_size)
+        const new_point_t = u8s_to_bigints(data[5], num_words, word_size)
+        const new_point_z = u8s_to_bigints(data[6], num_words, word_size)
 
         verify_preagg_stage_1(
-            point_x_y,
-            point_t_z,
-            new_point_indices,
-            cluster_start_indices,
-            cluster_end_indices,
-            new_point_x_y,
-            new_point_t_z,
+            point_x,
+            point_y,
+            cluster_and_new_point_indices,
+            new_point_x,
+            new_point_y,
+            new_point_t,
+            new_point_z,
+            num_chunks,
         )
     }
 
-    return { new_point_x_y_sb, new_point_t_z_sb }
+    return {
+        new_point_x_sb,
+        new_point_y_sb,
+        new_point_t_sb,
+        new_point_z_sb,
+    }
 }
 
 const verify_preagg_stage_1 = (
-    point_x_y: bigint[],
-    point_t_z: bigint[],
-    new_point_indices: number[],
-    cluster_start_indices: number[],
-    cluster_end_indices: number[],
-    new_point_x_y: bigint[],
-    new_point_t_z: bigint[],
+    point_x: bigint[],
+    point_y: bigint[],
+    cluster_and_new_point_indices: number[],
+    new_point_x: bigint[],
+    new_point_y: bigint[],
+    new_point_t: bigint[],
+    new_point_z: bigint[],
+    num_chunks: number,
 ) => {
-    assert(point_x_y.length === point_t_z.length)
-    assert(new_point_x_y.length === new_point_t_z.length)
-    assert(cluster_start_indices.length === cluster_end_indices.length)
-    assert(new_point_indices.length === cluster_end_indices.length)
+    assert(point_x.length === point_y.length)
+    assert(cluster_and_new_point_indices.length === num_chunks * 2)
 
-    const points = construct_points(point_x_y, point_t_z)
+    const points = construct_points_from_affine(point_x, point_y)
+
+    const cluster_indices = cluster_and_new_point_indices.slice(0, num_chunks)
+    const new_point_indices = cluster_and_new_point_indices.slice(num_chunks)
 
     const expected: ExtPointType[] = []
-    for (let i = 0; i < cluster_start_indices.length; i ++) {
-        const start = cluster_start_indices[i]
-        const end = cluster_end_indices[i]
+    for (let i = 0; i < cluster_indices.length - 1; i ++) {
+        const start = cluster_indices[i]
+        const end = cluster_indices[i + 1]
         let acc = points[new_point_indices[start]]
         for (let j = start + 1; j < end; j ++) {
             acc = acc.add(points[new_point_indices[j]])
@@ -837,7 +861,7 @@ const verify_preagg_stage_1 = (
         expected.push(acc)
     }
 
-    const new_points = construct_points(new_point_x_y, new_point_t_z)
+    const new_points = construct_points(new_point_x, new_point_y, new_point_t, new_point_z)
     for (let i = 0; i < expected.length; i ++) {
         const n = new_points[i].toAffine()
         const m = expected[i].toAffine()
@@ -848,6 +872,7 @@ const verify_preagg_stage_1 = (
 const genPreaggregationStage1ShaderCode = (
     num_y_workgroups: number,
     workgroup_size: number,
+    num_chunks: number,
 ) => {
     const misc_params = compute_misc_params(p, word_size)
     const num_words = misc_params.num_words
@@ -865,6 +890,7 @@ const genPreaggregationStage1ShaderCode = (
         {
             num_y_workgroups,
             workgroup_size,
+            num_chunks,
             word_size,
             num_words,
             n0,
@@ -892,20 +918,18 @@ const genPreaggregationStage1ShaderCode = (
 export const pre_aggregation_stage_2_gpu = async (
     device: GPUDevice,
     commandEncoder: GPUCommandEncoder,
-    num_chunks_per_subtask: number,
+    num_chunks: number,
     scalar_chunks_sb: GPUBuffer,
-    cluster_start_indices_sb: GPUBuffer,
-    new_point_indices_sb: GPUBuffer,
+    cluster_and_new_point_indices_sb: GPUBuffer,
     debug = false,
 ): Promise<GPUBuffer> => {
     // TODO: new_scalar_chunks_sb should be reused instead of created every
     // iteration
-    const new_scalar_chunks_sb = create_sb(device, cluster_start_indices_sb.size)
+    const new_scalar_chunks_sb = create_sb(device, num_chunks * 4)
 
     const bindGroupLayout = create_bind_group_layout(
         device,
         [
-            'read-only-storage',
             'read-only-storage',
             'read-only-storage',
             'storage',
@@ -917,19 +941,19 @@ export const pre_aggregation_stage_2_gpu = async (
         bindGroupLayout,
         [
             scalar_chunks_sb,
-            new_point_indices_sb,
-            cluster_start_indices_sb,
+            cluster_and_new_point_indices_sb,
             new_scalar_chunks_sb,
         ],
     )
 
     const workgroup_size = 16
     const num_x_workgroups = 256
-    const num_y_workgroups = Math.ceil(num_chunks_per_subtask / workgroup_size / num_x_workgroups)
+    const num_y_workgroups = Math.ceil(num_chunks / workgroup_size / num_x_workgroups)
 
     const shaderCode = genPreaggregationStage2ShaderCode(
         num_y_workgroups,
         workgroup_size,
+        num_chunks,
     )
 
     const computePipeline = await create_compute_pipeline(
@@ -947,16 +971,16 @@ export const pre_aggregation_stage_2_gpu = async (
             commandEncoder,
             [
                 new_scalar_chunks_sb,
-                cluster_start_indices_sb,
-                new_point_indices_sb,
+                cluster_and_new_point_indices_sb,
+                scalar_chunks_sb,
             ],
         )
         const nums = data.map(u8s_to_numbers_32)
         const new_scalar_chunks = nums[0]
-        const cluster_start_indices = nums[1]
-        const new_point_indices = nums[2]
+        const cluster_and_new_point_indices = nums[1]
+        const scalar_chunks = nums[2]
 
-        // TODO: write code to verify, but this may not be needed since the
+        // TODO: write code to verify, but this may not be needed if the
         // verification code for the transpose shader passes
         debugger
     }
@@ -967,6 +991,7 @@ export const pre_aggregation_stage_2_gpu = async (
 const genPreaggregationStage2ShaderCode = (
     num_y_workgroups: number,
     workgroup_size: number,
+    num_chunks: number,
 ) => {
     const p_limbs = gen_p_limbs(p, num_words, word_size)
     const r_limbs = gen_r_limbs(r, num_words, word_size)
@@ -976,9 +1001,9 @@ const genPreaggregationStage2ShaderCode = (
         {
             num_y_workgroups,
             workgroup_size,
+            num_chunks,
         },
-        {
-        },
+        { },
     )
     return shaderCode
 }
@@ -1093,15 +1118,36 @@ const genComputeRowPtrShaderCode = (
     return shaderCode
 }
 
-const construct_points = (x_y_coords: bigint[], t_z_coords: bigint[]) => {
+const construct_points = (
+    x_coords: bigint[],
+    y_coords: bigint[],
+    t_coords: bigint[],
+    z_coords: bigint[],
+) => {
     const points: ExtPointType[] = []
-    for (let i = 0; i < x_y_coords.length; i += 2) {
+    for (let i = 0; i < x_coords.length; i ++) {
         const pt = fieldMath.createPoint(
-            fieldMath.Fp.mul(x_y_coords[i], rinv),
-            fieldMath.Fp.mul(x_y_coords[i + 1], rinv),
-            fieldMath.Fp.mul(t_z_coords[i], rinv),
-            fieldMath.Fp.mul(t_z_coords[i + 1], rinv),
+            fieldMath.Fp.mul(x_coords[i], rinv),
+            fieldMath.Fp.mul(y_coords[i], rinv),
+            fieldMath.Fp.mul(t_coords[i], rinv),
+            fieldMath.Fp.mul(z_coords[i], rinv),
         )
+        pt.assertValidity()
+        points.push(pt)
+    }
+    return points
+}
+
+const construct_points_from_affine = (
+    x_coords: bigint[],
+    y_coords: bigint[],
+) => {
+    const points: ExtPointType[] = []
+    for (let i = 0; i < x_coords.length; i ++) {
+        const x = fieldMath.Fp.mul(x_coords[i], rinv)
+        const y = fieldMath.Fp.mul(y_coords[i], rinv)
+        const t = fieldMath.Fp.mul(x, y)
+        const pt = fieldMath.createPoint(x, y, t, BigInt(1))
         pt.assertValidity()
         points.push(pt)
     }
