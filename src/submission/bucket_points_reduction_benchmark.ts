@@ -28,15 +28,15 @@ export const bucket_points_reduction = async (
     //for (let i = 2; i < 64; i ++) {
         //await test_bucket_points_reduction(baseAffinePoints, i)
     //}
-    await test_bucket_points_reduction(baseAffinePoints, baseAffinePoints.length)
+    await test_bucket_points_reduction(baseAffinePoints.slice(0, 2 ** 16))
     return { x: BigInt(0), y: BigInt(0) }
 }
 
 export const test_bucket_points_reduction = async (
     baseAffinePoints: BigIntPoint[],
-    input_size: number,
 ) => {
-    assert(baseAffinePoints.length >= input_size)
+    const input_size = baseAffinePoints.length
+    assert(input_size >= 2 ** 16)
 
     const fieldMath = new FieldMath()
     const p = BigInt('0x12ab655e9a2ca55660b44d1e5c37b00159aa76fed00000010a11800000000001')
@@ -50,15 +50,16 @@ export const test_bucket_points_reduction = async (
     const p_limbs = gen_p_limbs(p, num_words, word_size)
 
     const x_y_coords: bigint[] = []
-    const t_z_coords: bigint[] = []
+    const t_coords: bigint[] = []
+    const z_coords: bigint[] = []
     for (const pt of baseAffinePoints.slice(0, input_size)) {
         x_y_coords.push(fieldMath.Fp.mul(pt.x, r))
         x_y_coords.push(fieldMath.Fp.mul(pt.y, r))
-        t_z_coords.push(fieldMath.Fp.mul(pt.t, r))
-        t_z_coords.push(fieldMath.Fp.mul(pt.z, r))
+        t_coords.push(fieldMath.Fp.mul(pt.t, r))
+        z_coords.push(fieldMath.Fp.mul(pt.z, r))
     }
 
-    const points = baseAffinePoints.slice(0, input_size).map((x) => fieldMath.createPoint(x.x, x.y, x.t, x.z))
+    const points = baseAffinePoints.map((x) => fieldMath.createPoint(x.x, x.y, x.t, x.z))
 
     const start_cpu = Date.now()
     let expected = points[0]
@@ -72,12 +73,15 @@ export const test_bucket_points_reduction = async (
     const commandEncoder = device.createCommandEncoder()
 
     const x_y_coords_bytes = bigints_to_u8_for_gpu(x_y_coords, num_words, word_size)
-    const t_z_coords_bytes = bigints_to_u8_for_gpu(t_z_coords, num_words, word_size)
+    const t_coords_bytes = bigints_to_u8_for_gpu(t_coords, num_words, word_size)
+    const z_coords_bytes = bigints_to_u8_for_gpu(z_coords, num_words, word_size)
 
     const x_y_coords_sb = create_and_write_sb(device, x_y_coords_bytes)
-    const t_z_coords_sb = create_and_write_sb(device, t_z_coords_bytes)
+    const t_coords_sb = create_and_write_sb(device, t_coords_bytes)
+    const z_coords_sb = create_and_write_sb(device, z_coords_bytes)
     const out_x_y_sb = create_sb(device, x_y_coords_sb.size)
-    const out_t_z_sb = create_sb(device, x_y_coords_sb.size)
+    const out_t_sb = create_sb(device, t_coords_sb.size)
+    const out_z_sb = create_sb(device, z_coords_sb.size)
 
     const shaderCode = mustache.render(
         bucket_points_reduction_shader,
@@ -108,9 +112,11 @@ export const test_bucket_points_reduction = async (
             commandEncoder,
             shaderCode,
             x_y_coords_sb,
-            t_z_coords_sb,
+            t_coords_sb,
+            z_coords_sb,
             out_x_y_sb,
-            out_t_z_sb,
+            out_t_sb,
+            out_z_sb,
             s,
             num_words,
         )
@@ -128,17 +134,18 @@ export const test_bucket_points_reduction = async (
     const data = await read_from_gpu(
         device,
         commandEncoder,
-        [ out_x_y_sb, out_t_z_sb ]
+        [ out_x_y_sb, out_t_sb, out_z_sb ]
     )
 
     const x_y_mont_coords_result = u8s_to_bigints(data[0], num_words, word_size)
-    const t_z_mont_coords_result = u8s_to_bigints(data[1], num_words, word_size)
+    const t_mont_coords_result = u8s_to_bigints(data[1], num_words, word_size)
+    const z_mont_coords_result = u8s_to_bigints(data[2], num_words, word_size)
 
     const result = fieldMath.createPoint(
         fieldMath.Fp.mul(x_y_mont_coords_result[0], rinv),
         fieldMath.Fp.mul(x_y_mont_coords_result[1], rinv),
-        fieldMath.Fp.mul(t_z_mont_coords_result[0], rinv),
-        fieldMath.Fp.mul(t_z_mont_coords_result[1], rinv),
+        fieldMath.Fp.mul(t_mont_coords_result[0], rinv),
+        fieldMath.Fp.mul(z_mont_coords_result[1], rinv),
     )
 
     //console.log('result:', result)
@@ -154,9 +161,11 @@ const shader_invocation = async (
     commandEncoder: GPUCommandEncoder,
     shaderCode: string,
     x_y_coords_sb: GPUBuffer,
-    t_z_coords_sb: GPUBuffer,
+    t_coords_sb: GPUBuffer,
+    z_coords_sb: GPUBuffer,
     out_x_y_sb: GPUBuffer,
-    out_t_z_sb: GPUBuffer,
+    out_t_sb: GPUBuffer,
+    out_z_sb: GPUBuffer,
     num_points: number,
     num_words: number,
 ) => {
@@ -171,6 +180,8 @@ const shader_invocation = async (
             'read-only-storage',
             'read-only-storage',
             'read-only-storage',
+            'read-only-storage',
+            'storage',
             'storage',
             'storage',
         ],
@@ -178,7 +189,7 @@ const shader_invocation = async (
     const bindGroup = create_bind_group(
         device,
         bindGroupLayout,
-        [ x_y_coords_sb, t_z_coords_sb, num_points_sb, out_x_y_sb, out_t_z_sb ],
+        [ x_y_coords_sb, t_coords_sb, z_coords_sb, num_points_sb, out_x_y_sb, out_t_sb, out_z_sb ],
     )
 
     const computePipeline = await create_compute_pipeline(
@@ -202,12 +213,19 @@ const shader_invocation = async (
         size,
     )
     commandEncoder.copyBufferToBuffer(
-        out_t_z_sb,
+        out_t_sb,
         0,
-        t_z_coords_sb,
+        t_coords_sb,
+        0,
+        size,
+    )
+    commandEncoder.copyBufferToBuffer(
+        out_z_sb,
+        0,
+        z_coords_sb,
         0,
         size,
     )
 
-    return { out_x_y_sb, out_t_z_sb, num_points_sb }
+    return { out_x_y_sb, out_t_sb, out_z_sb, num_points_sb }
 }
