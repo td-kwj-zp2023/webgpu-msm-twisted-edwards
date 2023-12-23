@@ -6,18 +6,14 @@ var<storage, read> subtask_idx: u32;
 
 // Output
 @group(0) @binding(2)
-var<storage, read_write> new_point_indices: array<u32>;
-@group(0) @binding(3)
-var<storage, read_write> cluster_start_indices: array<u32>;
-@group(0) @binding(4)
-var<storage, read_write> cluster_end_indices: array<u32>;
+var<storage, read_write> cluster_and_new_point_indices: array<u32>;
 
 // Intermediate buffers
-@group(0) @binding(5)
+@group(0) @binding(3)
 var<storage, read_write> map: array<array<u32, {{ max_cluster_size_plus_one }}>, {{ max_chunk_val }}>;
-@group(0) @binding(6)
+@group(0) @binding(4)
 var<storage, read_write> overflow: array<u32, {{ overflow_size }}>;
-@group(0) @binding(7)
+@group(0) @binding(5)
 var<storage, read_write> keys: array<u32, {{ max_chunk_val }}>;
 
 @compute
@@ -74,10 +70,10 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         }
     }
 
-    // Populate new_point_indices, cluster_start_indices and
-    // cluster_end_indices
+    // Populate cluster_and_new_point_indices
     var cluster_idx = 0u;
-    var npi_idx = 0u;
+    var npi_idx = num_chunks;
+
     for (var i = 0u; i < num_keys; i ++) {
         let chunk = keys[i];
         let cluster_size = map[chunk][0];
@@ -85,26 +81,24 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         // Record the new point indices, which are used to look up the points
         // during preaggregation
         for (var j = 1u; j < cluster_size + 1u; j ++) {
-            new_point_indices[npi_idx] = map[chunk][j];
+            cluster_and_new_point_indices[npi_idx] = map[chunk][j];
             npi_idx ++;
         }
 
         // Set cluster indices using cluster_idx, which tracks the values set
         // in cluster_start_indices and cluster_end_indices
-        cluster_start_indices[i] = cluster_idx;
         cluster_idx += cluster_size;
-        cluster_end_indices[i] = cluster_idx;
+        cluster_and_new_point_indices[i] = cluster_idx;
     }
 
     // Handle overflow
     for (var i = 0u; i < num_overflow; i ++) {
         let pt_idx = overflow[i];
-        new_point_indices[npi_idx] = pt_idx;
+        cluster_and_new_point_indices[npi_idx] = pt_idx;
         npi_idx ++;
 
         let cidx = num_keys + i;
-        cluster_start_indices[cidx] = cluster_idx;
         cluster_idx ++;
-        cluster_end_indices[cidx] = cluster_idx;
+        cluster_and_new_point_indices[cidx] = cluster_idx;
     }
 }
