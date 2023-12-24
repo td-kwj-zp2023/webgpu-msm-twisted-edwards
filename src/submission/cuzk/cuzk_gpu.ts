@@ -111,13 +111,15 @@ export const cuzk_gpu = async (
         false,
     )
 
+    // Used in pre_aggregation_stage_1_gpu. To save memory, we allocate these
+    // buffers only once and reuse them for each subtask.
     const new_point_x_sb = create_sb(device, input_size * num_words * 4)
     const new_point_y_sb = create_sb(device, input_size * num_words * 4)
     const new_point_t_sb = create_sb(device, input_size * num_words * 4)
     const new_point_z_sb = create_sb(device, input_size * num_words * 4)
     
     for (let subtask_idx = 0; subtask_idx < num_subtasks; subtask_idx ++) {
-        // use debug_idx to debug any particular subtask_idx
+        // Use debug_idx to debug any particular subtask_idx
         const debug_idx = 0
 
         // TODO: if debug is set to true in any invocations within a loop, the
@@ -137,12 +139,6 @@ export const cuzk_gpu = async (
             false,
         )
 
-        //const {
-            //new_point_x_sb,
-            //new_point_y_sb,
-            //new_point_t_sb,
-            //new_point_z_sb,
-        //} = await pre_aggregation_stage_1_gpu(
         await pre_aggregation_stage_1_gpu(
             device,
             commandEncoder,
