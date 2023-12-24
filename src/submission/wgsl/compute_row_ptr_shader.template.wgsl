@@ -1,6 +1,6 @@
 // Input buffers
 @group(0) @binding(0)
-var<storage, read> new_point_indices: array<u32, {{ num_chunks }}>;
+var<storage, read> cluster_and_new_point_indices: array<u32>;
 
 // Output buffers
 @group(0) @binding(1)
@@ -58,7 +58,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
        }
 
        for (; j < max_row_size; j ++) {
-           if (new_point_indices[i + j] == 0u) {
+           if (cluster_and_new_point_indices[num_chunks + i + j] == 0u) {
                break;
            }
        }
