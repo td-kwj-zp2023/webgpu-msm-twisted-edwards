@@ -167,7 +167,6 @@ export const cuzk_gpu = async (
             false,
         )
 
-        /*
         const row_ptr_sb = await compute_row_ptr(
             device,
             commandEncoder,
@@ -175,10 +174,8 @@ export const cuzk_gpu = async (
             num_subtasks,
             num_rows_per_subtask,
             cluster_and_new_point_indices_sb,
-            //false,
-            debug_idx === subtask_idx,
+            false,
         )
-        if (debug_idx === subtask_idx) { break }
 
         const transpose_sb = await transpose_gpu(
             device,
@@ -188,8 +185,9 @@ export const cuzk_gpu = async (
             row_ptr_sb,
             new_scalar_chunks_sb,
             false,
+            //debug_idx === subtask_idx,
         )
-        */
+        //if (debug_idx === subtask_idx) { break }
 
 
         //if (debug_idx === subtask_idx) { break }
@@ -1014,7 +1012,7 @@ const compute_row_ptr = async (
     input_size: number,
     num_subtasks: number,
     num_rows_per_subtask: number,
-    new_point_indices_sb: GPUBuffer,
+    cluster_and_new_point_indices_sb: GPUBuffer,
     debug = false,
 ): Promise<GPUBuffer> => {
     /*
@@ -1041,11 +1039,12 @@ const compute_row_ptr = async (
         device,
         bindGroupLayout,
         [
-            new_point_indices_sb,
+            cluster_and_new_point_indices_sb,
             row_ptr_sb,
         ],
     )
 
+    // This is a serial operation
     const workgroup_size = 1
     const num_x_workgroups = 1
     const num_y_workgroups = 1
@@ -1070,29 +1069,30 @@ const compute_row_ptr = async (
         const data = await read_from_gpu(
             device,
             commandEncoder,
-            [ new_point_indices_sb, row_ptr_sb ],
+            [ cluster_and_new_point_indices_sb, row_ptr_sb ],
         )
         
-        const new_point_indices = u8s_to_numbers(data[0])
+        const cluster_and_new_point_indices = u8s_to_numbers(data[0])
         const row_ptr = u8s_to_numbers(data[1])
 
         console.log("row_ptr is: ", row_ptr)
 
         // Verify
         const expected: number[] = [0]
-        for (let i = 0; i < new_point_indices.length; i += max_row_size) {
+        for (let i = 0; i < num_chunks; i += max_row_size) {
             let j = 0
             if (i === 0) {
                 j = 1
             }
             for (; j < max_row_size; j ++) {
-                if (new_point_indices[i + j] === 0) {
+                if (cluster_and_new_point_indices[num_chunks + i + j] === 0) {
                     break
                 }
             }
             expected.push(expected[expected.length - 1] + j)
         }
-        assert(row_ptr.toString() === expected.toString(), 'row_ptr mismatch')
+
+        assert(row_ptr.toString() === expected.toString(), `row_ptr mismatch`)
     }
 
     return row_ptr_sb
