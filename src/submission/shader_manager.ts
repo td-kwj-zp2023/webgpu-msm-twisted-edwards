@@ -1,6 +1,5 @@
 import mustache from 'mustache'
-import convert_point_coords_shader from './wgsl/convert_point_coords.template.wgsl'
-import decompose_scalars_shader from './wgsl/decompose_scalars.template.wgsl'
+import convert_point_coords_and_decompose_scalars from './wgsl/convert_point_coords_and_decompose_scalars.template.wgsl'
 import gen_csr_precompute_shader from './wgsl/gen_csr_precompute.template.wgsl'
 import preaggregation_stage_1_shader from './wgsl/preaggregation_stage_1.template.wgsl'
 import preaggregation_stage_2_shader from './wgsl/preaggregation_stage_2.template.wgsl'
@@ -52,14 +51,17 @@ export class ShaderManager {
         this.two_pow_word_size = BigInt(2) ** BigInt(word_size)
     }
 
-    gen_convert_point_coords_shader(
+    gen_convert_point_coords_and_decompose_scalars_shader = (
         workgroup_size: number,
         num_y_workgroups: number,
-    ): string {
+        num_subtasks: number,
+        chunk_size: number, 
+        input_size: number,
+    ) => {
         const p_bitlength = this.p.toString(2).length
         const slack = this.num_words * this.word_size - p_bitlength
         const shaderCode = mustache.render(
-            convert_point_coords_shader,
+            convert_point_coords_and_decompose_scalars,
             {
                 workgroup_size,
                 num_y_workgroups,
@@ -75,6 +77,9 @@ export class ShaderManager {
                 slack,
                 num_words_mul_two: this.num_words * 2,
                 num_words_plus_one: this.num_words + 1,
+                num_subtasks,
+                chunk_size,
+                input_size,
             },
             {
                 structs,
@@ -88,29 +93,6 @@ export class ShaderManager {
         return shaderCode
     }
 
-    gen_decompose_scalars_shader(
-        workgroup_size: number,
-        num_y_workgroups: number,
-        num_subtasks: number,
-        chunk_size: number,
-        input_size: number
-    ) {
-        const shaderCode = mustache.render(
-            decompose_scalars_shader,
-            {
-                workgroup_size,
-                num_y_workgroups,
-                num_subtasks,
-                chunk_size,
-                input_size,
-            },
-            {
-                extract_word_from_bytes_le_funcs,
-            },
-        )
-        return shaderCode
-    }
-    
     gen_csr_precompute_shader(
         num_y_workgroups: number,
         max_chunk_val: number,
