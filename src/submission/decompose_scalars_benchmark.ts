@@ -7,7 +7,7 @@ import {
     u8s_to_numbers,
     decompose_scalars,
     compute_misc_params,
-    bigints_to_16_bit_words_for_gpu,
+    bigints_to_u8_for_gpu,
 } from './utils'
 import { get_device, create_bind_group } from './gpu'
 import extract_word_from_bytes_le_shader from './wgsl/extract_word_from_bytes_le.template.wgsl'
@@ -139,7 +139,7 @@ const decompose_scalars_gpu = async (
     word_size: number,
 ) => {
     // Convert scalars to bytes
-    const scalar_bytes = bigints_to_16_bit_words_for_gpu(scalars)
+    const scalar_bytes = bigints_to_u8_for_gpu(scalars, 16, 16)
 
     // Calculate expected decomposed scalars
     const expected: number[][] = []
@@ -187,6 +187,7 @@ const decompose_scalars_gpu = async (
             num_y_workgroups,
             num_subtasks: num_words,
             chunk_size: word_size,
+            input_size: scalars.length,
         },
         {
             extract_word_from_bytes_le_funcs: extract_word_from_bytes_le_shader
@@ -242,10 +243,10 @@ const decompose_scalars_gpu = async (
 
     const scalar_chunks = u8s_to_numbers(new Uint8Array(result_data))
     //console.log('from gpu:', scalar_chunks)
-    for (let i = 0; i < expected.length; i ++) {
-        for (let j = 0; j < num_words; j ++) {
+    for (let j = 0; j < num_words; j ++) {
+        for (let i = 0; i < expected.length; i ++) {
             const e = expected[i][j]
-            const s = scalar_chunks[i * num_words + j]
+            const s = scalar_chunks[j * expected.length + i]
             if (e !== s) {
                 console.log('mismatch at', i, j)
                 debugger
