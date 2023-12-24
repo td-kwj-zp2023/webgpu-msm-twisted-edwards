@@ -28,7 +28,6 @@ export const cuzk_gpu_approach_d = async (
     scalars: bigint[]
 ): Promise<{x: bigint, y: bigint}> => {
     console.log('obsolete')
-
     //const input_size = scalars.length
     //const num_subtasks = 16
 
