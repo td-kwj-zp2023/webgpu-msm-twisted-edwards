@@ -5,11 +5,13 @@ import preaggregation_stage_1_shader from './wgsl/preaggregation_stage_1.templat
 import preaggregation_stage_2_shader from './wgsl/preaggregation_stage_2.template.wgsl'
 import compute_row_ptr_shader from './wgsl/compute_row_ptr_shader.template.wgsl'
 import transpose_serial_shader from './wgsl/transpose_serial.wgsl'
+import smvp_shader from './wgsl/smvp.template.wgsl'
 
 import structs from './wgsl/struct/structs.template.wgsl'
 import bigint_funcs from './wgsl/bigint/bigint.template.wgsl'
 import field_funcs from './wgsl/field/field.template.wgsl'
 import ec_funcs from './wgsl/curve/ec.template.wgsl'
+import curve_parameters from './wgsl/curve/parameters.template.wgsl'
 import barrett_funcs from './wgsl/barrett.template.wgsl'
 import montgomery_product_funcs from './wgsl/montgomery/mont_pro_product.template.wgsl'
 import extract_word_from_bytes_le_funcs from './wgsl/extract_word_from_bytes_le.template.wgsl'
@@ -198,6 +200,32 @@ export class ShaderManager {
             transpose_serial_shader,
             { num_cols },
             {},
+        )
+        return shaderCode
+    }
+
+    gen_smvp_shader(
+        num_y_workgroups: number,
+    ) {
+        const shaderCode = mustache.render(
+            smvp_shader,
+            {
+                word_size: this.word_size,
+                num_words: this.num_words,
+                n0: this.n0,
+                p_limbs: this.p_limbs,
+                num_y_workgroups,
+                mask: this.mask,
+                two_pow_word_size: this.two_pow_word_size,
+            },
+            {
+                structs,
+                bigint_funcs,
+                montgomery_product_funcs,
+                field_funcs,
+                curve_parameters,
+                ec_funcs,
+            },
         )
         return shaderCode
     }
