@@ -108,6 +108,8 @@ export const cuzk_gpu = async (
             false,
         )
 
+    const aggregated_points: GPUBuffer[] = []
+
     for (let subtask_idx = 0; subtask_idx < 1; subtask_idx ++) {
         // use debug_idx to debug any particular subtask_idx
         const debug_idx = 0
@@ -202,12 +204,21 @@ export const cuzk_gpu = async (
             true,
         )
 
-        //if (debug_idx === subtask_idx) { break }
- 
-        // TODO: perform bucket aggregation
+        aggregated_points.push(aggregated_point)
     }
 
+    // Read input array back from GPU buffers
+
+    // Destroy device object
     device.destroy()
+
+    // Perform horner's rule
+    // let expected = aggregated_points[0]
+    // const m = BigInt(2) ** BigInt(chunk_size)
+    // for (let i = 1; i < num_subtasks; i ++) {
+    //     expected = expected.multiply(m)
+    //     expected = expected.add(aggregated_points[i])
+    // }
 
     return { x: BigInt(1), y: BigInt(0) }
 }
@@ -1433,4 +1444,6 @@ export const running_sum_gpu = async (
         // assert(output_points_affine_gpu.x === output_points_affine_cpu.x)
         // assert(output_points_affine_gpu.y === output_points_affine_cpu.y)
     }
+
+    return result_sb
 }
