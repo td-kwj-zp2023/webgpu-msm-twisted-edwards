@@ -196,6 +196,7 @@ export const cuzk_gpu = async (
             commandEncoder,
             num_cols,
             csc_col_ptr_sb,
+            csc_val_idxs_sb,
             new_point_x_y_sb,
             new_point_t_z_sb,
             false,
@@ -1233,13 +1234,14 @@ export const smvp_gpu = async (
     commandEncoder: GPUCommandEncoder,
     num_cols: number,
     csc_col_ptr_sb: GPUBuffer,
+    csc_val_idxs_sb: GPUBuffer,
     new_point_x_y_sb: GPUBuffer,
     new_point_t_z_sb: GPUBuffer,
     debug = false,
 ) => {
     const num_workgroups = 256
-    const num_x_workgroups = Math.floor((num_cols + num_workgroups - 1) / num_workgroups)
-    const num_y_workgroups = 1
+    const num_x_workgroups = 256
+    const num_y_workgroups = num_cols / num_workgroups / num_x_workgroups
 
     // Create buffered memory accessible by the GPU memory space
     const output_buffer_length = num_cols * num_words * 4 * 2
@@ -1253,6 +1255,7 @@ export const smvp_gpu = async (
             'read-only-storage',
             'read-only-storage',
             'read-only-storage',
+            'read-only-storage',
             'storage',
             'storage',
         ],
@@ -1263,6 +1266,7 @@ export const smvp_gpu = async (
         bindGroupLayout,
         [
             csc_col_ptr_sb,
+            csc_val_idxs_sb,
             new_point_x_y_sb,
             new_point_t_z_sb,
             bucket_sum_x_y_sb,
