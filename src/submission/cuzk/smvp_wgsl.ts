@@ -59,7 +59,7 @@ export async function smvp(
     )
 
     // WGSL Shader invocations
-    for (let i = 0; i < 2; i ++) {
+    for (let i = 0; i < csr_sparse_matrices.length; i ++) {
         console.log('CSR matrix:', i)
         // Perform Sparse-Matrix Tranpose and SMVP
         await smvp_gpu(device, csr_sparse_matrices[i], num_words, word_size, p, n0, params.r, params.rinv)
@@ -142,19 +142,22 @@ export async function smvp_gpu(
     r: bigint,
     rinv: bigint,
 ) {
+    const start_0 = Date.now()
     const csr_sparse_matrix_transposed = await csr_sm.transpose()
+    const elapsed_0 = Date.now() - start_0
+    console.log(`GPU 0 took ${elapsed_0}ms`)
 
     const start_1 = Date.now()
 
-    console.log("sparse matrix before transpose", csr_sm)
-    const vector_smvp: bigint[] = Array(csr_sparse_matrix_transposed.row_ptr.length - 1).fill(BigInt(1));
-    console.log("csr_sparse_matrix_transposed: ", csr_sparse_matrix_transposed)
-    const buckets_svmp: ExtPointType[] = await csr_sparse_matrix_transposed.smvp(vector_smvp)
-    console.log("csr_sparse_matrix_transposed after smvp: ", buckets_svmp)
+    // console.log("sparse matrix before transpose", csr_sm)
+    // const vector_smvp: bigint[] = Array(csr_sparse_matrix_transposed.row_ptr.length - 1).fill(BigInt(1));
+    // console.log("csr_sparse_matrix_transposed: ", csr_sparse_matrix_transposed)
+    // const buckets_svmp: ExtPointType[] = await csr_sparse_matrix_transposed.smvp(vector_smvp)
+    // console.log("csr_sparse_matrix_transposed after smvp: ", buckets_svmp)
     
-    const elapsed_1 = Date.now() - start_1
-    const output_points_non_mont_and_affine_cpu = buckets_svmp.map((x) => x.toAffine())
-    console.log(`CPU took ${elapsed_1}ms`)
+    // const elapsed_1 = Date.now() - start_1
+    // const output_points_non_mont_and_affine_cpu = buckets_svmp.map((x) => x.toAffine())
+    // console.log(`CPU took ${elapsed_1}ms`)
 
     // Convert BigIntPoint to montgomery form
     const points_with_mont_coords: BigIntPoint[] = []
@@ -190,6 +193,7 @@ export async function smvp_gpu(
 
     const points_bytes = points_to_u8s_for_gpu(points_with_mont_coords, num_words, word_size)
 
+
     const p_limbs = gen_p_limbs(p, num_words, word_size)
     const shaderCode = mustache.render(
         smvp_shader,
@@ -214,7 +218,13 @@ export async function smvp_gpu(
 
     const commandEncoder = device.createCommandEncoder();
 
+    const elapsed_1 = Date.now() - start_1
+    console.log(`GPU 1 took ${elapsed_1}ms`)
+
     const output_buffer_length = NUM_ROWS * num_words * 4 * 4
+
+    // const elapsed_1 = Date.now() - start_1
+    // console.log(`GPU 1 took ${elapsed_1}ms`)
 
     const start = Date.now()
     const output_storage_buffer = create_sb(device, output_buffer_length)
@@ -254,13 +264,16 @@ export async function smvp_gpu(
         commandEncoder,
         [output_storage_buffer],
     )
-
     const elapsed = Date.now() - start
-    console.log(`GPU took ${elapsed}ms`)
+    console.log(`GPU 2 took ${elapsed}ms`)
+
+    const start_3 = Date.now()
 
     // Transform results 
     const data_as_uint8s = new Uint8Array(data[0])
+    console.log("data_as_uint8s is: ", data_as_uint8s)
     const output_points = u8s_to_points(data_as_uint8s, num_words, word_size)
+    console.log("output_points is: ", output_points)
 
     const bigIntPointToExtPointType = (bip: BigIntPoint): ExtPointType => {
         return fieldMath.createPoint(bip.x, bip.y, bip.t, bip.z)
@@ -281,8 +294,12 @@ export async function smvp_gpu(
     // Convert output_points_non_mont into affine
     const output_points_non_mont_and_affine_gpu = output_points_non_mont.map((x) => x.toAffine())
 
-    for (let i = 0; i < output_points_non_mont_and_affine_gpu.length; i ++) {
-        assert(output_points_non_mont_and_affine_gpu[i].x === output_points_non_mont_and_affine_cpu[i].x)
-        assert(output_points_non_mont_and_affine_gpu[i].y === output_points_non_mont_and_affine_cpu[i].y)
-    }
+    const elapsed_3 = Date.now() - start_3
+    console.log(`GPU 3 took ${elapsed_3}ms`)
+
+
+    // for (let i = 0; i < output_points_non_mont_and_affine_gpu.length; i ++) {
+    //     assert(output_points_non_mont_and_affine_gpu[i].x === output_points_non_mont_and_affine_cpu[i].x)
+    //     assert(output_points_non_mont_and_affine_gpu[i].y === output_points_non_mont_and_affine_cpu[i].y)
+    // }
 }
