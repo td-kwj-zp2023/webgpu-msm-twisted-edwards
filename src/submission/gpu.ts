@@ -57,6 +57,20 @@ export const read_from_gpu = async (
     storage_buffers: GPUBuffer[],
     custom_size = 0,
 ) => {
+    // Finish encoding commands and submit to GPU device command queue
+    device.queue.submit([commandEncoder.finish()]);
+
+    // Map staging buffers to read results back to JS
+    const data: never[] = []
+    return data
+}
+
+export const read_from_gpu_1 = async (
+    device: GPUDevice,
+    commandEncoder: GPUCommandEncoder,
+    storage_buffers: GPUBuffer[],
+    custom_size = 0,
+) => {
     const staging_buffers: GPUBuffer[] = []
     for (const storage_buffer of storage_buffers) {
         const size = custom_size === 0 ? storage_buffer.size : custom_size
