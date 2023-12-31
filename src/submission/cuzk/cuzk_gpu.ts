@@ -74,6 +74,9 @@ export const cuzk_gpu = async (
     // storage buffers can't be reused across compute passes
     const device = await get_device()
     const commandEncoder = device.createCommandEncoder()
+
+    console.log("word_size is: !!!!!!!", word_size)
+    console.log("num_words is: !!!!!!!", num_words)
  
     // Convert the affine points to Montgomery form and decompose the scalars
     // using a single shader
@@ -103,15 +106,15 @@ export const cuzk_gpu = async (
     const bucket_sum_z_sb = create_sb(device, output_buffer_length)
     const csr_col_idx_sb = create_sb(device, input_size * 4)
 
-    for (let subtask_idx = 0; subtask_idx < num_subtasks; subtask_idx ++) {
+    for (let subtask_idx = 0; subtask_idx < num_subtasks; subtask_idx ++) { 
         // Copy subtask_chunks to csr_col_idx
-        commandEncoder.copyBufferToBuffer(
-            scalar_chunks_sb,
-            subtask_idx * csr_col_idx_sb.size,
-            csr_col_idx_sb,
-            0,
-            csr_col_idx_sb.size,
-        )
+        // commandEncoder.copyBufferToBuffer(
+        //     scalar_chunks_sb,
+        //     subtask_idx * csr_col_idx_sb.size,
+        //     csr_col_idx_sb,
+        //     0,
+        //     csr_col_idx_sb.size,
+        // )
 
         // Construct row_ptr
         const csr_row_ptr_sb = await gen_row_ptr(
@@ -120,6 +123,15 @@ export const cuzk_gpu = async (
             input_size,
             num_columns,
             true
+        )     
+
+        const commandEncoderNew = device.createCommandEncoder();
+        commandEncoderNew.copyBufferToBuffer(
+            scalar_chunks_sb,
+            subtask_idx * csr_col_idx_sb.size,
+            csr_col_idx_sb,
+            0,
+            csr_col_idx_sb.size,
         )
 
         // Transpose
@@ -128,11 +140,11 @@ export const cuzk_gpu = async (
             csc_val_idxs_sb,
         } = await transpose_gpu(
             device,
-            // commandEncoder,
+            commandEncoderNew,
             input_size,
             num_columns,
             csr_row_ptr_sb,
-            scalar_chunks_sb,
+            csr_col_idx_sb,
             true
         )
 
@@ -153,6 +165,9 @@ export const cuzk_gpu = async (
             true
         )
 
+        // Start timer
+        const startTime = performance.now(); // Record start time
+
         // Bucket aggregation
         const {
             out_x_sb,
@@ -167,59 +182,65 @@ export const cuzk_gpu = async (
             bucket_sum_t_sb,
             bucket_sum_z_sb,
             num_columns,
-            true
+            input_size
+            // true
         )
+                
+        // End timer
+        const endTime = performance.now()
+        const executionTime = endTime - startTime;
+        console.log(`Parallel transaction execution time: ${executionTime} milliseconds`);
 
         // TODO: improve memory handling of these buffers. Instead of
         // initialising a new buffer every time, copy the data to an aggregate
         // buffer
-        // aggregated_x_sbs.push(out_x_sb)
-        // aggregated_y_sbs.push(out_y_sb)
-        // aggregated_t_sbs.push(out_t_sb)
-        // aggregated_z_sbs.push(out_z_sb)
+        aggregated_x_sbs.push(out_x_sb)
+        aggregated_y_sbs.push(out_y_sb)
+        aggregated_t_sbs.push(out_t_sb)
+        aggregated_z_sbs.push(out_z_sb)
+    }   
+
+    const bucket_sum_data = await read_from_gpu_1(
+        device,
+        commandEncoder,
+        aggregated_x_sbs.concat(aggregated_y_sbs).concat(aggregated_t_sbs).concat(aggregated_z_sbs),
+        num_words * 4,
+    )
+    console.log("bucket_sum_data is: ", bucket_sum_data)
+
+    device.destroy()
+
+    const points: ExtPointType[] = []
+    const k = aggregated_x_sbs.length
+    for (let i = 0; i < k; i ++) {
+        // Convert each point out of Montgomery form
+        const x_mont_coords = u8s_to_bigints(bucket_sum_data[i], num_words, word_size)
+        const y_mont_coords = u8s_to_bigints(bucket_sum_data[i + k], num_words, word_size)
+        const t_mont_coords = u8s_to_bigints(bucket_sum_data[i + 2 * k], num_words, word_size)
+        const z_mont_coords = u8s_to_bigints(bucket_sum_data[i + 3 * k], num_words, word_size)
+
+        const pt = fieldMath.createPoint(
+            fieldMath.Fp.mul(x_mont_coords[0], rinv),
+            fieldMath.Fp.mul(y_mont_coords[0], rinv),
+            fieldMath.Fp.mul(t_mont_coords[0], rinv),
+            fieldMath.Fp.mul(z_mont_coords[0], rinv),
+        )
+        points.push(pt)
     }
 
-    // const bucket_sum_data = await read_from_gpu_1(
-    //     device,
-    //     commandEncoder,
-    //     aggregated_x_sbs.concat(aggregated_y_sbs).concat(aggregated_t_sbs).concat(aggregated_z_sbs),
-    //     num_words * 4,
-    // )
-    // console.log("bucket_sum_data is: ", bucket_sum_data)
+    // Horner's rule
+    const m = BigInt(2) ** BigInt(chunk_size)
+    // The last scalar chunk is the most significant digit (base m)
+    let result = points[points.length - 1]
+    for (let i = points.length - 2; i >= 0; i --) {
+        result = result.multiply(m)
+        result = result.add(points[i])
+    }
 
-    // device.destroy()
-
-    // const points: ExtPointType[] = []
-    // const k = aggregated_x_sbs.length
-    // for (let i = 0; i < k; i ++) {
-    //     // Convert each point out of Montgomery form
-    //     const x_mont_coords = u8s_to_bigints(bucket_sum_data[i], num_words, word_size)
-    //     const y_mont_coords = u8s_to_bigints(bucket_sum_data[i + k], num_words, word_size)
-    //     const t_mont_coords = u8s_to_bigints(bucket_sum_data[i + 2 * k], num_words, word_size)
-    //     const z_mont_coords = u8s_to_bigints(bucket_sum_data[i + 3 * k], num_words, word_size)
-
-    //     const pt = fieldMath.createPoint(
-    //         fieldMath.Fp.mul(x_mont_coords[0], rinv),
-    //         fieldMath.Fp.mul(y_mont_coords[0], rinv),
-    //         fieldMath.Fp.mul(t_mont_coords[0], rinv),
-    //         fieldMath.Fp.mul(z_mont_coords[0], rinv),
-    //     )
-    //     points.push(pt)
-    // }
-
-    // // Horner's rule
-    // const m = BigInt(2) ** BigInt(chunk_size)
-    // // The last scalar chunk is the most significant digit (base m)
-    // let result = points[points.length - 1]
-    // for (let i = points.length - 2; i >= 0; i --) {
-    //     result = result.multiply(m)
-    //     result = result.add(points[i])
-    // }
-
-    // // console.log("result is: ", result.toAffine())
-    // return result.toAffine()
+    // console.log("result is: ", result.toAffine())
+    return result.toAffine()
     //device.destroy()
-    return { x: BigInt(0), y: BigInt(1) }
+    // return { x: BigInt(0), y: BigInt(1) }
 }
 
 /*
@@ -403,6 +424,11 @@ export const convert_point_coords_and_decompose_shaders = async (
         // }
     }
 
+    // Destroy unused buffers
+    x_coords_sb.destroy()
+    y_coords_sb.destroy()
+    scalars_sb.destroy()
+
     return { point_x_sb, point_y_sb, scalar_chunks_sb }
 }
 
@@ -526,7 +552,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
 export const transpose_gpu = async (
     device: GPUDevice,
-    // commandEncoder: GPUCommandEncoder,
+    commandEncoder: GPUCommandEncoder,
     input_size: number,
     num_cols: number,
     csr_row_ptr_sb: GPUBuffer,
@@ -561,7 +587,7 @@ export const transpose_gpu = async (
     const csc_val_idxs_sb = create_sb(device, new_scalar_chunks_sb.size)
     const curr_sb = create_sb(device, num_cols * 4)
 
-    const commandEncoder = device.createCommandEncoder()
+    // const commandEncoder = device.createCommandEncoder()
 
     const bindGroupLayout = create_bind_group_layout(
         device,
@@ -644,6 +670,9 @@ export const transpose_gpu = async (
         // assert(expected.csc_vals.toString() === csc_val_idxs_result.toString(), 'csc_vals mismatch')
     }
 
+    // Destroy unused buffers
+    csr_row_ptr_sb.destroy()
+
     return {
         csc_col_ptr_sb,
         csc_row_idx_sb,
@@ -681,6 +710,8 @@ export const smvp_gpu = async (
     }
 
     const commandEncoder = device.createCommandEncoder();
+
+    // const start = Date.now()
 
     const bindGroupLayout = create_bind_group_layout(
         device,
@@ -760,6 +791,9 @@ export const smvp_gpu = async (
             ],
         )
 
+        // const elapsed = Date.now() - start
+        // console.log(`GPU 2 took ${elapsed}ms`)
+
         // const bucket_sum_x_sb_result = u8s_to_bigints(data[4], num_words, word_size)
         // console.log("bucket_sum_x_sb_result: ", bucket_sum_x_sb_result)
     
@@ -822,6 +856,9 @@ export const smvp_gpu = async (
         // }
     }
 
+    csc_col_ptr_sb.destroy()
+    csc_val_idxs_sb.destroy()
+
     return {
         bucket_sum_x_sb,
         bucket_sum_y_sb,
@@ -838,8 +875,10 @@ export const bucket_aggregation = async (
     bucket_sum_t_sb: GPUBuffer,
     bucket_sum_z_sb: GPUBuffer,
     num_cols: number,
+    input_size: number,
     debug = false,
 ) => {
+
     // TODO: improve memory allocation; see above
     const out_x_sb = create_sb(device, bucket_sum_x_sb.size)
     const out_y_sb = create_sb(device, bucket_sum_y_sb.size)
@@ -862,6 +901,7 @@ export const bucket_aggregation = async (
             p_limbs,
             mask: BigInt(2) ** BigInt(word_size) - BigInt(1),
             two_pow_word_size: BigInt(2) ** BigInt(word_size),
+            input_size,
         },
         {
             structs,
@@ -873,50 +913,78 @@ export const bucket_aggregation = async (
         },
     )
 
-    let original_bucket_sum_x_sb
-    let original_bucket_sum_y_sb
-    let original_bucket_sum_t_sb
-    let original_bucket_sum_z_sb
+    // const original_bucket_sum_x_sb
+    // const original_bucket_sum_y_sb
+    // const original_bucket_sum_t_sb
+    // const original_bucket_sum_z_sb
 
-    if (debug) {
-        original_bucket_sum_x_sb = create_sb(device, bucket_sum_x_sb.size)
-        original_bucket_sum_y_sb = create_sb(device, bucket_sum_y_sb.size)
-        original_bucket_sum_t_sb = create_sb(device, bucket_sum_t_sb.size)
-        original_bucket_sum_z_sb = create_sb(device, bucket_sum_z_sb.size)
+    // Start timer
+    // const startTime = performance.now(); // Record start time
 
-        commandEncoder.copyBufferToBuffer(
-            bucket_sum_x_sb,
-            0,
-            original_bucket_sum_x_sb,
-            0,
-            bucket_sum_x_sb.size,
-        )
-        commandEncoder.copyBufferToBuffer(
-            bucket_sum_y_sb,
-            0,
-            original_bucket_sum_y_sb,
-            0,
-            bucket_sum_y_sb.size,
-        )
-        commandEncoder.copyBufferToBuffer(
-            bucket_sum_t_sb,
-            0,
-            original_bucket_sum_t_sb,
-            0,
-            bucket_sum_t_sb.size,
-        )
-        commandEncoder.copyBufferToBuffer(
-            bucket_sum_z_sb,
-            0,
-            original_bucket_sum_z_sb,
-            0,
-            bucket_sum_z_sb.size,
-        )
-    }
+    // const original_bucket_sum_x_sb = create_sb(device, bucket_sum_x_sb.size)
+    // const original_bucket_sum_y_sb = create_sb(device, bucket_sum_y_sb.size)
+    // const original_bucket_sum_t_sb = create_sb(device, bucket_sum_t_sb.size)
+    // const original_bucket_sum_z_sb = create_sb(device, bucket_sum_z_sb.size)
 
-    //let num_invocations = 0
-    let s = num_cols
-    while (s > 1) {
+    // if (debug) {
+    //     // original_bucket_sum_x_sb = create_sb(device, bucket_sum_x_sb.size)
+    //     // original_bucket_sum_y_sb = create_sb(device, bucket_sum_y_sb.size)
+    //     // original_bucket_sum_t_sb = create_sb(device, bucket_sum_t_sb.size)
+    //     // original_bucket_sum_z_sb = create_sb(device, bucket_sum_z_sb.size)
+
+    //     commandEncoder.copyBufferToBuffer(
+    //         bucket_sum_x_sb,
+    //         0,
+    //         original_bucket_sum_x_sb,
+    //         0,
+    //         bucket_sum_x_sb.size,
+    //     )
+    //     commandEncoder.copyBufferToBuffer(
+    //         bucket_sum_y_sb,
+    //         0,
+    //         original_bucket_sum_y_sb,
+    //         0,
+    //         bucket_sum_y_sb.size,
+    //     )
+    //     commandEncoder.copyBufferToBuffer(
+    //         bucket_sum_t_sb,
+    //         0,
+    //         original_bucket_sum_t_sb,
+    //         0,
+    //         bucket_sum_t_sb.size,
+    //     )
+    //     commandEncoder.copyBufferToBuffer(
+    //         bucket_sum_z_sb,
+    //         0,
+    //         original_bucket_sum_z_sb,
+    //         0,
+    //         bucket_sum_z_sb.size,
+    //     )
+    // }
+
+    // End timer
+    // const endTime = performance.now()
+    // const executionTime = endTime - startTime;
+    // console.log(`bucket aggregation execution time: ${executionTime} milliseconds`);    
+
+    // console.log("num columns is: ", num_cols)
+
+    // console.log('bucket_sum_x_sb size: ', bucket_sum_x_sb.size)
+    // console.log('bucket_sum_y_sb size: ', bucket_sum_y_sb.size)
+    // console.log('bucket_sum_t_sb size: ', bucket_sum_t_sb.size)
+    // console.log('bucket_sum_z_sb size: ', bucket_sum_z_sb.size)
+
+    // console.log("out_x_sb.size: ", out_x_sb.size)
+    // console.log("out_y_sb.size: ", out_y_sb.size)
+    // console.log("out_t_sb.size: ", out_t_sb.size)
+    // console.log("out_z_sb.size: ", out_z_sb.size)
+    // console.log("num_words: ", num_words)
+
+    // let num_invocations = 0
+    const s = num_cols
+    // const start = Date.now()
+    // while (s > 1) {
+        // console.log("entered: ", s)
         await shader_invocation(
             device,
             commandEncoder,
@@ -932,22 +1000,23 @@ export const bucket_aggregation = async (
             s,
             num_words,
         )
-        //num_invocations ++
+        // num_invocations++
 
-        const e = s
-        s = Math.ceil(s / 2)
-        if (e === 1 && s === 1) {
-            break
-        }
-    }
-    
-    if (
-        debug
-        && original_bucket_sum_x_sb != undefined // prevent TS warnings
-        && original_bucket_sum_y_sb != undefined
-        && original_bucket_sum_t_sb != undefined
-        && original_bucket_sum_z_sb != undefined
-    ) {
+        // const e = s
+        // s = Math.ceil(s / 2)
+        // if (e === 1 && s === 1) {
+        //     break
+        // }
+    // }
+    // const elapsed = Date.now() - start
+    // console.log(`${num_invocations} GPU invocations of the point reduction shader for ${input_size} points took ${elapsed}ms`)
+
+    // if (
+    //     original_bucket_sum_x_sb != undefined // prevent TS warnings
+    //     && original_bucket_sum_y_sb != undefined
+    //     && original_bucket_sum_t_sb != undefined
+    //     && original_bucket_sum_z_sb != undefined
+    // ) {
         const data = await read_from_gpu(
             device,
             commandEncoder,
@@ -956,12 +1025,17 @@ export const bucket_aggregation = async (
                 out_y_sb,
                 out_t_sb,
                 out_z_sb,
-                original_bucket_sum_x_sb,
-                original_bucket_sum_y_sb,
-                original_bucket_sum_t_sb,
-                original_bucket_sum_z_sb,
+                // original_bucket_sum_x_sb,
+                // original_bucket_sum_y_sb,
+                // original_bucket_sum_t_sb,
+                // original_bucket_sum_z_sb,
             ]
         )
+
+        // // End timer
+        // const endTime = performance.now()
+        // const executionTime = endTime - startTime;
+        // console.log(`bucket aggregation execution time: ${executionTime} milliseconds`);
 
         // const x_mont_coords_result = u8s_to_bigints(data[0], num_words, word_size)
         // console.log("x_mont_coords_result: ", x_mont_coords_result)
@@ -1000,7 +1074,7 @@ export const bucket_aggregation = async (
         // }
 
         // assert(are_point_arr_equal([result], [expected]))
-    }
+    // }
 
     return {
         out_x_sb,

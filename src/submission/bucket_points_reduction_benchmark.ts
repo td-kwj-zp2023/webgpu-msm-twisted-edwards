@@ -110,6 +110,10 @@ export const test_bucket_points_reduction = async (
 
     let num_invocations = 0
     let s = input_size
+    console.log("x_coords_sb size: ", x_coords_sb.size)
+    console.log("y_coords_sb size: ", y_coords_sb.size)
+    console.log("t_coords_sb size: ", t_coords_sb.size)
+    console.log("z_coords_sb size: ", z_coords_sb.size)
     const start = Date.now()
     while (s > 1) {
         await shader_invocation(

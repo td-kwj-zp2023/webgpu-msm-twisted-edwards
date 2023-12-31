@@ -10,6 +10,7 @@ import {
     create_sb,
     read_from_gpu,
     execute_pipeline,
+    read_from_gpu_1,
 } from '../gpu'
 import { CSRSparseMatrix, ELLSparseMatrix, fieldMath } from '../matrices/matrices';
 import smvp_shader from '../wgsl/cuzk/smvp_benchmark.template.wgsl'
@@ -259,7 +260,7 @@ export async function smvp_gpu(
 
     execute_pipeline(commandEncoder, computePipeline, bindGroup, num_x_workgroups)
 
-    const data = await read_from_gpu(
+    const data = await read_from_gpu_1(
         device,
         commandEncoder,
         [output_storage_buffer],
