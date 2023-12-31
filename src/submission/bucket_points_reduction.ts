@@ -25,6 +25,7 @@ export const shader_invocation = async (
 ) => {
     assert(num_points <= 2 ** 16)
 
+
     const num_points_bytes = numbers_to_u8s_for_gpu([num_points])
     const num_points_sb = create_and_write_ub(device, num_points_bytes)
 
