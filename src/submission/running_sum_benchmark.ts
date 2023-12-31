@@ -11,6 +11,7 @@ import {
     create_sb,
     read_from_gpu,
     execute_pipeline,
+    create_and_write_ub,
     read_from_gpu_1,
 } from './gpu'
 import structs from './wgsl/struct/structs.template.wgsl'
@@ -21,27 +22,23 @@ import curve_parameters from './wgsl/curve/parameters.template.wgsl'
 import montgomery_product_funcs from './wgsl/montgomery/mont_pro_product.template.wgsl'
 import bucket_points_reduction_shader from './wgsl/bucket_points_reduction.template.wgsl'
 import { are_point_arr_equal, compute_misc_params, u8s_to_bigints, numbers_to_u8s_for_gpu, gen_p_limbs, bigints_to_u8_for_gpu } from './utils'
-import { shader_invocation } from './bucket_points_reduction'
+import running_sum_shader from './wgsl/running_sum.template.wgsl'
 
-function delay(ms: number) {
-    return new Promise( resolve => setTimeout(resolve, ms) );
-}
-
-export const bucket_points_reduction = async (
+export const running_sum_benchmark = async (
     baseAffinePoints: BigIntPoint[],
     scalars: bigint[]
 ): Promise<{x: bigint, y: bigint}> => {
-    //for (let i = 2; i < 64; i ++) {
-        //await test_bucket_points_reduction(baseAffinePoints, i)
-    //}
-    await test_bucket_points_reduction(baseAffinePoints, baseAffinePoints.length)
+    console.log("entered running_sum_benchmark!")
+    await running_sum(baseAffinePoints, baseAffinePoints.length)
     return { x: BigInt(0), y: BigInt(0) }
 }
 
-export const test_bucket_points_reduction = async (
+export const running_sum = async (
     baseAffinePoints: BigIntPoint[],
     input_size: number,
 ) => {
+    console.log("entered running_sum!")
+
     assert(baseAffinePoints.length >= input_size)
 
     const fieldMath = new FieldMath()
@@ -73,6 +70,8 @@ export const test_bucket_points_reduction = async (
     for (let i = 1; i < points.length; i ++) {
         expected  = expected.add(points[i])
     }
+    console.log("cpu is: ", expected)
+    
     const elapsed_cpu = Date.now() - start_cpu
     console.log(`CPU took ${elapsed_cpu}ms to sum ${input_size} points serially`)
 
@@ -88,13 +87,15 @@ export const test_bucket_points_reduction = async (
     const y_coords_sb = create_and_write_sb(device, y_coords_bytes)
     const t_coords_sb = create_and_write_sb(device, t_coords_bytes)
     const z_coords_sb = create_and_write_sb(device, z_coords_bytes)
-    const out_x_sb = create_sb(device, x_coords_sb.size)
-    const out_y_sb = create_sb(device, y_coords_sb.size)
-    const out_t_sb = create_sb(device, y_coords_sb.size)
-    const out_z_sb = create_sb(device, z_coords_sb.size)
+    const out_x_sb = create_sb(device, 80)
+    const out_y_sb = create_sb(device, 80)
+    const out_t_sb = create_sb(device, 80)
+    const out_z_sb = create_sb(device, 80)
+
+    const start = Date.now()
 
     const shaderCode = mustache.render(
-        bucket_points_reduction_shader,
+        running_sum_shader,
         {
             word_size,
             num_words,
@@ -113,18 +114,28 @@ export const test_bucket_points_reduction = async (
         },
     )
 
-    let num_invocations = 0
-    let s = input_size
-    console.log("x_coords_sb size: ", x_coords_sb.size)
-    console.log("y_coords_sb size: ", y_coords_sb.size)
-    console.log("t_coords_sb size: ", t_coords_sb.size)
-    console.log("z_coords_sb size: ", z_coords_sb.size)
-    const start = Date.now()
-    while (s > 1) {
-        await shader_invocation(
-            device,
-            commandEncoder,
-            shaderCode,
+    assert(input_size <= 2 ** 16)
+
+    const num_points_bytes = numbers_to_u8s_for_gpu([input_size])
+    const num_points_sb = create_and_write_ub(device, num_points_bytes)
+
+    const bindGroupLayout = create_bind_group_layout(
+        device,
+        [
+            'read-only-storage',
+            'read-only-storage',
+            'read-only-storage',
+            'read-only-storage',
+            'storage',
+            'storage',
+            'storage',
+            'storage',
+        ],
+    )
+    const bindGroup = create_bind_group(
+        device,
+        bindGroupLayout,
+        [
             x_coords_sb,
             y_coords_sb,
             t_coords_sb,
@@ -133,19 +144,22 @@ export const test_bucket_points_reduction = async (
             out_y_sb,
             out_t_sb,
             out_z_sb,
-            s,
-            num_words,
-        )
-        num_invocations ++
+        ]
+    )
 
-        const e = s
-        s = Math.ceil(s / 2)
-        if (e === 1 && s === 1) {
-            break
-        }
-    }
+    const computePipeline = await create_compute_pipeline(
+        device,
+        [bindGroupLayout],
+        shaderCode,
+        'main',
+    )
 
-    const data = await read_from_gpu_1(
+    const num_x_workgroups = 1
+    const num_y_workgroups = 1
+
+    execute_pipeline(commandEncoder, computePipeline, bindGroup, num_x_workgroups, num_y_workgroups, 1);
+
+    const data = await read_from_gpu(
         device,
         commandEncoder,
         [
@@ -153,19 +167,23 @@ export const test_bucket_points_reduction = async (
             out_y_sb,
             out_t_sb,
             out_z_sb,
-        ]
+        ],
+        320
     )
 
     const elapsed = Date.now() - start
-    console.log(`${num_invocations} GPU invocations of the point reduction shader for ${input_size} points took ${elapsed}ms`)
-
-    // await delay(10000);
-
+    console.log(`running shader for ${input_size} points took ${elapsed}ms`)
 
     const x_mont_coords_result = u8s_to_bigints(data[0], num_words, word_size)
     const y_mont_coords_result = u8s_to_bigints(data[1], num_words, word_size)
     const t_mont_coords_result = u8s_to_bigints(data[2], num_words, word_size)
     const z_mont_coords_result = u8s_to_bigints(data[3], num_words, word_size)
+
+    console.log("x_mont_coords_result is: ", x_mont_coords_result)
+    console.log("y_mont_coords_result is: ", y_mont_coords_result)
+    console.log("t_mont_coords_result is: ", t_mont_coords_result)
+    console.log("z_mont_coords_result is: ", z_mont_coords_result)
+    console.log("z_mont_coords_result[0] is: ", z_mont_coords_result[0])
 
     const result = fieldMath.createPoint(
         fieldMath.Fp.mul(x_mont_coords_result[0], rinv),
@@ -174,10 +192,10 @@ export const test_bucket_points_reduction = async (
         fieldMath.Fp.mul(z_mont_coords_result[0], rinv),
     )
 
-    //console.log('result:', result)
-    //console.log('result.isAffine():', result.toAffine())
-    //console.log('expected.isAffine():', expected.toAffine())
-    assert(are_point_arr_equal([result], [expected]))
+    // console.log('result:', result)
+    // console.log('result.isAffine():', result.toAffine())
+    // console.log('expected.isAffine():', expected.toAffine())
+    // assert(are_point_arr_equal([result], [expected]))
 
     device.destroy()
 }

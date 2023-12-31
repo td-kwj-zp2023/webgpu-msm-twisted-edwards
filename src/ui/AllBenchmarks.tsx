@@ -28,6 +28,7 @@ import { smvp } from '../submission/cuzk/smvp_wgsl';
 import { data_transfer_cost_benchmarks } from '../submission/data_transfer_cost_benchmarks'
 import { bucket_points_reduction } from '../submission/bucket_points_reduction_benchmark'
 import { horners_rule_benchmark } from '../submission/horners_rule_benchmark'
+import { running_sum_benchmark } from '../submission/running_sum_benchmark'
 
 export const AllBenchmarks: React.FC = () => {
   const initialDefaultInputSize = 2 ** 16
@@ -169,6 +170,16 @@ export const AllBenchmarks: React.FC = () => {
         scalars={bigIntScalars}
         expectedResult={expectedResult}
         msmFunc={bucket_points_reduction}
+        postResult={postResult}
+        bold={true}
+      />
+        <Benchmark
+        name={'Running-Sum Benchmarks'}
+        disabled={disabledBenchmark}
+        baseAffinePoints={baseAffineBigIntPoints}
+        scalars={bigIntScalars}
+        expectedResult={expectedResult}
+        msmFunc={running_sum_benchmark}
         postResult={postResult}
         bold={true}
       />

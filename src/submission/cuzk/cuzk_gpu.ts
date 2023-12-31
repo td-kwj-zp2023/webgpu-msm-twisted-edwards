@@ -25,6 +25,7 @@ import {
     compute_misc_params,
     decompose_scalars,
     are_point_arr_equal,
+    u8s_to_points,
 } from '../utils'
 import { cpu_transpose } from './transpose'
 import { cpu_smvp } from './smvp';
@@ -42,6 +43,7 @@ import curve_parameters from '../wgsl/curve/parameters.template.wgsl'
 import transpose_serial_shader from '../wgsl/transpose_serial.wgsl'
 import smvp_shader from '../wgsl/smvp.template.wgsl'
 import bucket_points_reduction_shader from '../wgsl/bucket_points_reduction.template.wgsl'
+import running_sum_shader from '../wgsl/running_sum.template.wgsl'
 
 // Hardcode params for word_size = 13
 const p = BigInt('8444461749428370424248824938781546531375899335154063827935233455917409239041')
@@ -165,6 +167,7 @@ export const cuzk_gpu = async (
             true
         )
 
+
         // Start timer
         const startTime = performance.now(); // Record start time
 
@@ -185,62 +188,76 @@ export const cuzk_gpu = async (
             input_size
             // true
         )
+
+        // const res = await running_sum_gpu(
+        //     device,
+        //     // commandEncoder,
+        //     input_size,
+        //     bucket_sum_x_sb,
+        //     bucket_sum_y_sb,
+        //     bucket_sum_t_sb,
+        //     bucket_sum_z_sb,
+        //     // true
+        // )
                 
         // End timer
         const endTime = performance.now()
         const executionTime = endTime - startTime;
         console.log(`Parallel transaction execution time: ${executionTime} milliseconds`);
 
-        // TODO: improve memory handling of these buffers. Instead of
-        // initialising a new buffer every time, copy the data to an aggregate
-        // buffer
-        aggregated_x_sbs.push(out_x_sb)
-        aggregated_y_sbs.push(out_y_sb)
-        aggregated_t_sbs.push(out_t_sb)
-        aggregated_z_sbs.push(out_z_sb)
+        // // TODO: improve memory handling of these buffers. Instead of
+        // // initialising a new buffer every time, copy the data to an aggregate
+        // // buffer
+        // // aggregated_x_sbs.push(out_x_sb)
+        // // aggregated_y_sbs.push(out_y_sb)
+        // // aggregated_t_sbs.push(out_t_sb)
+        // // aggregated_z_sbs.push(out_z_sb)
+
+        // aggregated_x_sbs.push(res)
+        
     }   
 
-    const bucket_sum_data = await read_from_gpu_1(
-        device,
-        commandEncoder,
-        aggregated_x_sbs.concat(aggregated_y_sbs).concat(aggregated_t_sbs).concat(aggregated_z_sbs),
-        num_words * 4,
-    )
-    console.log("bucket_sum_data is: ", bucket_sum_data)
+    // const bucket_sum_data = await read_from_gpu_1(
+    //     device,
+    //     commandEncoder,
+    //     aggregated_x_sbs.concat(aggregated_y_sbs).concat(aggregated_t_sbs).concat(aggregated_z_sbs),
+    //     num_words * 4,
+    // )
+    // console.log("bucket_sum_data is: ", bucket_sum_data)
 
-    device.destroy()
+    // device.destroy()
 
-    const points: ExtPointType[] = []
-    const k = aggregated_x_sbs.length
-    for (let i = 0; i < k; i ++) {
-        // Convert each point out of Montgomery form
-        const x_mont_coords = u8s_to_bigints(bucket_sum_data[i], num_words, word_size)
-        const y_mont_coords = u8s_to_bigints(bucket_sum_data[i + k], num_words, word_size)
-        const t_mont_coords = u8s_to_bigints(bucket_sum_data[i + 2 * k], num_words, word_size)
-        const z_mont_coords = u8s_to_bigints(bucket_sum_data[i + 3 * k], num_words, word_size)
+    // const points: ExtPointType[] = []
+    // const k = aggregated_x_sbs.length
+    // for (let i = 0; i < k; i ++) {
+    //     // Convert each point out of Montgomery form
+    //     const x_mont_coords = u8s_to_bigints(bucket_sum_data[i], num_words, word_size)
+    //     const y_mont_coords = u8s_to_bigints(bucket_sum_data[i + k], num_words, word_size)
+    //     const t_mont_coords = u8s_to_bigints(bucket_sum_data[i + 2 * k], num_words, word_size)
+    //     const z_mont_coords = u8s_to_bigints(bucket_sum_data[i + 3 * k], num_words, word_size)
 
-        const pt = fieldMath.createPoint(
-            fieldMath.Fp.mul(x_mont_coords[0], rinv),
-            fieldMath.Fp.mul(y_mont_coords[0], rinv),
-            fieldMath.Fp.mul(t_mont_coords[0], rinv),
-            fieldMath.Fp.mul(z_mont_coords[0], rinv),
-        )
-        points.push(pt)
-    }
+    //     const pt = fieldMath.createPoint(
+    //         fieldMath.Fp.mul(x_mont_coords[0], rinv),
+    //         fieldMath.Fp.mul(y_mont_coords[0], rinv),
+    //         fieldMath.Fp.mul(t_mont_coords[0], rinv),
+    //         fieldMath.Fp.mul(z_mont_coords[0], rinv),
+    //     )
+    //     points.push(pt)
+    // }
 
-    // Horner's rule
-    const m = BigInt(2) ** BigInt(chunk_size)
-    // The last scalar chunk is the most significant digit (base m)
-    let result = points[points.length - 1]
-    for (let i = points.length - 2; i >= 0; i --) {
-        result = result.multiply(m)
-        result = result.add(points[i])
-    }
+    // // Horner's rule
+    // const m = BigInt(2) ** BigInt(chunk_size)
+    // // The last scalar chunk is the most significant digit (base m)
+    // let result = points[points.length - 1]
+    // for (let i = points.length - 2; i >= 0; i --) {
+    //     result = result.multiply(m)
+    //     result = result.add(points[i])
+    // }
 
-    // console.log("result is: ", result.toAffine())
-    return result.toAffine()
+    // // console.log("result is: ", result.toAffine())
+    // return result.toAffine()
     //device.destroy()
-    // return { x: BigInt(0), y: BigInt(1) }
+    return { x: BigInt(0), y: BigInt(1) }
 }
 
 /*
@@ -981,10 +998,10 @@ export const bucket_aggregation = async (
     // console.log("num_words: ", num_words)
 
     // let num_invocations = 0
-    const s = num_cols
-    // const start = Date.now()
-    // while (s > 1) {
-        // console.log("entered: ", s)
+    let s = num_cols
+    const start = Date.now()
+    while (s > 1) {
+        console.log("entered: ", s)
         await shader_invocation(
             device,
             commandEncoder,
@@ -1002,12 +1019,12 @@ export const bucket_aggregation = async (
         )
         // num_invocations++
 
-        // const e = s
-        // s = Math.ceil(s / 2)
-        // if (e === 1 && s === 1) {
-        //     break
-        // }
-    // }
+        const e = s
+        s = Math.ceil(s / 2)
+        if (e === 1 && s === 1) {
+            break
+        }
+    }
     // const elapsed = Date.now() - start
     // console.log(`${num_invocations} GPU invocations of the point reduction shader for ${input_size} points took ${elapsed}ms`)
 
@@ -1083,3 +1100,162 @@ export const bucket_aggregation = async (
         out_z_sb,
     }
 }
+
+export const running_sum_gpu = async (
+    device: GPUDevice,
+    // commandEncoder: GPUCommandEncoder,
+    input_size: number,
+    bucket_sum_x_sb: GPUBuffer,
+    bucket_sum_y_sb: GPUBuffer,
+    bucket_sum_t_sb: GPUBuffer,
+    bucket_sum_z_sb: GPUBuffer,
+    debug = false,
+) => {
+    // console.log("Entered running_sum_gpu!")
+    // console.log("input size: ", input_size)
+    // console.log("num_words size: ", num_words)
+    // console.log("word_size size: ", word_size)
+    // console.log("1 << input_size: ", 1 << input_size)
+    // Create buffered memory accessible by the GPU memory space
+    const output_buffer_length = 320
+    const result_sb = create_sb(device, output_buffer_length)
+
+    // debugger
+
+    // Start timer
+    const startTime = performance.now(); // Record start time
+
+    const commandEncoder = device.createCommandEncoder();
+
+    // Define number of workgroups
+    const num_x_workgroups = 1; 
+    const num_y_workgroups = 1; 
+
+    const bindGroupLayout = create_bind_group_layout(
+        device,
+        [
+            'read-only-storage',
+            'read-only-storage',
+            'read-only-storage',
+            'read-only-storage',
+            'storage',
+        ],
+    )
+
+    const bindGroup = create_bind_group(
+        device,
+        bindGroupLayout,
+        [
+            bucket_sum_x_sb,
+            bucket_sum_y_sb,
+            bucket_sum_t_sb,
+            bucket_sum_z_sb,
+            result_sb,
+        ],
+    )
+
+    const p_limbs = gen_p_limbs(p, num_words, word_size)
+    const shaderCode = mustache.render(
+        running_sum_shader,
+        {
+            word_size,
+            num_words,
+            n0,
+            p_limbs,
+            mask: BigInt(2) ** BigInt(word_size) - BigInt(1),
+            two_pow_word_size: BigInt(2) ** BigInt(word_size),
+            num_y_workgroups, 
+            input_size
+        },
+        {
+            structs,
+            bigint_funcs,
+            montgomery_product_funcs,
+            field_funcs,
+            curve_parameters,
+            ec_funcs,
+        },
+    )
+
+    const computePipeline = await create_compute_pipeline(
+        device,
+        [bindGroupLayout],
+        shaderCode,
+        'main',
+    )
+
+    execute_pipeline(commandEncoder, computePipeline, bindGroup, num_x_workgroups, num_y_workgroups, 1)
+
+    // if (debug) {
+        const data = await read_from_gpu(
+            device,
+            commandEncoder,
+            [result_sb, bucket_sum_x_sb, bucket_sum_y_sb, bucket_sum_t_sb, bucket_sum_z_sb],
+        )
+
+    // End timer
+    const endTime = performance.now()
+    const executionTime = endTime - startTime;
+    console.log(`Parallel transaction execution time: ${executionTime} milliseconds`);
+
+        // const bigIntPointToExtPointType = (bip: BigIntPoint): ExtPointType => {
+        //     return fieldMath.createPoint(bip.x, bip.y, bip.t, bip.z)
+        // }
+
+        // const data_as_uint8s = new Uint8Array(data[0])    
+        // const result_gpu = u8s_to_points(data_as_uint8s, num_words, word_size)
+        // console.log("result_gpu is: ", result_gpu)
+        // const aggregate_gpu: ExtPointType = bigIntPointToExtPointType(result_gpu[0])
+        // console.log("aggregate_gpu (in mongtomery): ", aggregate_gpu)
+        
+        // // Convert GPU results out of montogmery
+        // const non = {
+        //     x: fieldMath.Fp.mul(aggregate_gpu.ex, rinv),
+        //     y: fieldMath.Fp.mul(aggregate_gpu.ey, rinv),
+        //     t: fieldMath.Fp.mul(aggregate_gpu.et, rinv),
+        //     z: fieldMath.Fp.mul(aggregate_gpu.ez, rinv),
+        // }
+
+        // const aggregate_gpu_out_of_mont = bigIntPointToExtPointType(non)
+
+        // console.log("aggregate_gpu_out_of_mont: ", aggregate_gpu_out_of_mont)
+
+        // const bucket_sum_x_y_sb_result = u8s_to_bigints(data[1], num_words, word_size)
+        // const bucket_sum_t_z_sb_result = u8s_to_bigints(data[2], num_words, word_size)
+
+        // Convert CPU output out of Montgomery coordinates
+        // const output_points_cpu_out_of_mont: ExtPointType[] = []
+        // for (let i = 0; i < 1 << input_size; i++) {
+        //     const non = {
+        //         x: fieldMath.Fp.mul(bucket_sum_x_y_sb_result[i * 2], rinv),
+        //         y: fieldMath.Fp.mul(bucket_sum_x_y_sb_result[i * 2 + 1], rinv),
+        //         t: fieldMath.Fp.mul(bucket_sum_t_z_sb_result[i * 2], rinv),
+        //         z: fieldMath.Fp.mul(bucket_sum_t_z_sb_result[i * 2 + 1], rinv),
+        //     }
+        //     output_points_cpu_out_of_mont.push(bigIntPointToExtPointType(non))
+        // }       
+    
+        // verify against CPU 
+        // let aggregate_cpu: ExtPointType = fieldMath.customEdwards.ExtendedPoint.ZERO
+        // for (const [i, bucket] of output_points_cpu_out_of_mont.entries()) {
+        //     if (i == 0) {
+        //         continue
+        //     }
+        //     aggregate_cpu = aggregate_cpu.add(bucket.multiply(BigInt(i)))
+        // }
+
+        // // Transform results into affine representation (out of montgomery form)
+        // const output_points_affine_cpu = aggregate_cpu.toAffine()
+        // const output_points_affine_gpu = aggregate_gpu_out_of_mont.toAffine()
+
+        // console.log("output_points_affine_cpu is: ", output_points_affine_cpu)
+        // console.log("output_points_affine_gpu is: ", output_points_affine_gpu)
+
+        // // Assertion checks
+        // assert(output_points_affine_gpu.x === output_points_affine_cpu.x)
+        // assert(output_points_affine_gpu.y === output_points_affine_cpu.y)
+    // }
+
+    return result_sb
+}
+
