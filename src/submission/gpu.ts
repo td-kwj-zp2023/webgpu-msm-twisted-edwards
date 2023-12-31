@@ -21,6 +21,7 @@ export const create_and_write_sb = (
     buffer: Uint8Array,
 ): GPUBuffer => {
     const sb = device.createBuffer({
+        mappedAtCreation: false,
         size: buffer.length,
         usage: read_write_buffer_usage
     })
@@ -33,6 +34,7 @@ export const create_and_write_ub = (
     buffer: Uint8Array,
 ): GPUBuffer => {
     const ub = device.createBuffer({
+        mappedAtCreation: false,
         size: buffer.length,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     })
@@ -59,6 +61,7 @@ export const read_from_gpu = async (
 ) => {
     // Finish encoding commands and submit to GPU device command queue
     device.queue.submit([commandEncoder.finish()]);
+    await device.queue.onSubmittedWorkDone()
 
     // Map staging buffers to read results back to JS
     const data: never[] = []
@@ -69,15 +72,22 @@ export const read_from_gpu_1 = async (
     device: GPUDevice,
     commandEncoder: GPUCommandEncoder,
     storage_buffers: GPUBuffer[],
-    custom_size = 0,
+    custom_size = 320,
 ) => {
     const staging_buffers: GPUBuffer[] = []
+    const copyEncoder = device.createCommandEncoder();
+
     for (const storage_buffer of storage_buffers) {
         const size = custom_size === 0 ? storage_buffer.size : custom_size
         const staging_buffer = device.createBuffer({
+            mappedAtCreation: false,
             size,
             usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST
         })
+
+        console.log("size is: ", size)
+
+        // Encode commands for copying buffer to buffer.
         commandEncoder.copyBufferToBuffer(
             storage_buffer,
             0,
@@ -88,8 +98,24 @@ export const read_from_gpu_1 = async (
         staging_buffers.push(staging_buffer)
     }
 
+
+    // Start timer
+    const startTime1 = performance.now(); // Record start time
+
     // Finish encoding commands and submit to GPU device command queue
-    device.queue.submit([commandEncoder.finish()]);
+    // device.queue.submit([commandEncoder.finish()]);
+    const copyCommands = commandEncoder.finish()
+    device.queue.submit([copyCommands]);
+    // await device.queue.onSubmittedWorkDone()
+
+    // End timer
+    const endTime1 = performance.now()
+    const executionTime1 = endTime1 - startTime1;
+    console.log(`onSubmittedWorkDone() execution time: ${executionTime1} milliseconds`);
+
+    // Start timer
+    const startTime = performance.now(); // Record start time
+
 
     // Map staging buffers to read results back to JS
     const data = []
@@ -97,12 +123,20 @@ export const read_from_gpu_1 = async (
         await staging_buffers[i].mapAsync(
             GPUMapMode.READ,
             0,
-            staging_buffers[i].size,
+            custom_size,
         )
         const result_data = staging_buffers[i].getMappedRange(0, staging_buffers[i].size).slice(0)
+        // console.log("result_data: ", result_data)
         staging_buffers[i].unmap()
         data.push(new Uint8Array(result_data))
     }
+
+
+    // End timer
+    const endTime = performance.now()
+    const executionTime = endTime - startTime;
+    console.log(`Reading back execution time: ${executionTime} milliseconds`);
+
     return data
 }
 
