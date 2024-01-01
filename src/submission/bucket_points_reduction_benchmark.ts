@@ -11,7 +11,6 @@ import {
     create_sb,
     read_from_gpu,
     execute_pipeline,
-    read_from_gpu_1,
 } from './gpu'
 import structs from './wgsl/struct/structs.template.wgsl'
 import bigint_funcs from './wgsl/bigint/bigint.template.wgsl'
@@ -31,9 +30,6 @@ export const bucket_points_reduction = async (
     baseAffinePoints: BigIntPoint[],
     scalars: bigint[]
 ): Promise<{x: bigint, y: bigint}> => {
-    //for (let i = 2; i < 64; i ++) {
-        //await test_bucket_points_reduction(baseAffinePoints, i)
-    //}
     await test_bucket_points_reduction(baseAffinePoints, baseAffinePoints.length)
     return { x: BigInt(0), y: BigInt(0) }
 }
@@ -90,7 +86,7 @@ export const test_bucket_points_reduction = async (
     const z_coords_sb = create_and_write_sb(device, z_coords_bytes)
     const out_x_sb = create_sb(device, x_coords_sb.size)
     const out_y_sb = create_sb(device, y_coords_sb.size)
-    const out_t_sb = create_sb(device, y_coords_sb.size)
+    const out_t_sb = create_sb(device, t_coords_sb.size)
     const out_z_sb = create_sb(device, z_coords_sb.size)
 
     const shaderCode = mustache.render(
@@ -115,10 +111,6 @@ export const test_bucket_points_reduction = async (
 
     let num_invocations = 0
     let s = input_size
-    console.log("x_coords_sb size: ", x_coords_sb.size)
-    console.log("y_coords_sb size: ", y_coords_sb.size)
-    console.log("t_coords_sb size: ", t_coords_sb.size)
-    console.log("z_coords_sb size: ", z_coords_sb.size)
     const start = Date.now()
     while (s > 1) {
         await shader_invocation(
@@ -145,7 +137,7 @@ export const test_bucket_points_reduction = async (
         }
     }
 
-    const data = await read_from_gpu_1(
+    const data = await read_from_gpu(
         device,
         commandEncoder,
         [
@@ -159,9 +151,6 @@ export const test_bucket_points_reduction = async (
     const elapsed = Date.now() - start
     console.log(`${num_invocations} GPU invocations of the point reduction shader for ${input_size} points took ${elapsed}ms`)
 
-    // await delay(10000);
-
-
     const x_mont_coords_result = u8s_to_bigints(data[0], num_words, word_size)
     const y_mont_coords_result = u8s_to_bigints(data[1], num_words, word_size)
     const t_mont_coords_result = u8s_to_bigints(data[2], num_words, word_size)
@@ -174,9 +163,6 @@ export const test_bucket_points_reduction = async (
         fieldMath.Fp.mul(z_mont_coords_result[0], rinv),
     )
 
-    //console.log('result:', result)
-    //console.log('result.isAffine():', result.toAffine())
-    //console.log('expected.isAffine():', expected.toAffine())
     assert(are_point_arr_equal([result], [expected]))
 
     device.destroy()
