@@ -31,7 +31,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     inf.z = r;
 
     var sum = inf;
-    for (var i = (1u << 16) - 2u; i > 0; i--) {
+    for (var i = (1u << 15) - 2u; i > 0; i--) {
         let x = point_x[i * 2u];
         let y = point_y[i * 2u];
         let t = point_t[i * 2u];

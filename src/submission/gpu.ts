@@ -59,23 +59,7 @@ export const read_from_gpu = async (
     storage_buffers: GPUBuffer[],
     custom_size = 0,
 ) => {
-    // Finish encoding commands and submit to GPU device command queue
-    device.queue.submit([commandEncoder.finish()]);
-    await device.queue.onSubmittedWorkDone()
-
-    // Map staging buffers to read results back to JS
-    const data: never[] = []
-    return data
-}
-
-export const read_from_gpu_1 = async (
-    device: GPUDevice,
-    commandEncoder: GPUCommandEncoder,
-    storage_buffers: GPUBuffer[],
-    custom_size = 320,
-) => {
     const staging_buffers: GPUBuffer[] = []
-    const copyEncoder = device.createCommandEncoder();
 
     for (const storage_buffer of storage_buffers) {
         const size = custom_size === 0 ? storage_buffer.size : custom_size
@@ -84,8 +68,6 @@ export const read_from_gpu_1 = async (
             size,
             usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST
         })
-
-        console.log("size is: ", size)
 
         // Encode commands for copying buffer to buffer.
         commandEncoder.copyBufferToBuffer(
@@ -98,29 +80,13 @@ export const read_from_gpu_1 = async (
         staging_buffers.push(staging_buffer)
     }
 
-
-    // Start timer
-    const startTime1 = performance.now(); // Record start time
-
     // Finish encoding commands and submit to GPU device command queue
-    // device.queue.submit([commandEncoder.finish()]);
-    const copyCommands = commandEncoder.finish()
-    device.queue.submit([copyCommands]);
-    // await device.queue.onSubmittedWorkDone()
-
-    // End timer
-    const endTime1 = performance.now()
-    const executionTime1 = endTime1 - startTime1;
-    console.log(`onSubmittedWorkDone() execution time: ${executionTime1} milliseconds`);
-
-    // Start timer
-    const startTime = performance.now(); // Record start time
-
+    device.queue.submit([commandEncoder.finish()]);
 
     // Map staging buffers to read results back to JS
     const data = []
     for (let i = 0; i < staging_buffers.length; i ++) {
-        await staging_buffers[i].mapAsync(
+        await staging_buffers[i].mapAsync( 
             GPUMapMode.READ,
             0,
             custom_size,
@@ -130,12 +96,6 @@ export const read_from_gpu_1 = async (
         staging_buffers[i].unmap()
         data.push(new Uint8Array(result_data))
     }
-
-
-    // End timer
-    const endTime = performance.now()
-    const executionTime = endTime - startTime;
-    console.log(`Reading back execution time: ${executionTime} milliseconds`);
 
     return data
 }

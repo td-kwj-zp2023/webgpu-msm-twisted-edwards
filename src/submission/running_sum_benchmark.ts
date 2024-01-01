@@ -12,7 +12,6 @@ import {
     read_from_gpu,
     execute_pipeline,
     create_and_write_ub,
-    read_from_gpu_1,
 } from './gpu'
 import structs from './wgsl/struct/structs.template.wgsl'
 import bigint_funcs from './wgsl/bigint/bigint.template.wgsl'
@@ -70,8 +69,7 @@ export const running_sum = async (
     for (let i = 1; i < points.length; i ++) {
         expected  = expected.add(points[i])
     }
-    console.log("cpu is: ", expected)
-    
+
     const elapsed_cpu = Date.now() - start_cpu
     console.log(`CPU took ${elapsed_cpu}ms to sum ${input_size} points serially`)
 
@@ -172,18 +170,12 @@ export const running_sum = async (
     )
 
     const elapsed = Date.now() - start
-    console.log(`running shader for ${input_size} points took ${elapsed}ms`)
+    console.log(`Running-Sum GPU shader for ${input_size} points took ${elapsed}ms`)
 
     const x_mont_coords_result = u8s_to_bigints(data[0], num_words, word_size)
     const y_mont_coords_result = u8s_to_bigints(data[1], num_words, word_size)
     const t_mont_coords_result = u8s_to_bigints(data[2], num_words, word_size)
     const z_mont_coords_result = u8s_to_bigints(data[3], num_words, word_size)
-
-    console.log("x_mont_coords_result is: ", x_mont_coords_result)
-    console.log("y_mont_coords_result is: ", y_mont_coords_result)
-    console.log("t_mont_coords_result is: ", t_mont_coords_result)
-    console.log("z_mont_coords_result is: ", z_mont_coords_result)
-    console.log("z_mont_coords_result[0] is: ", z_mont_coords_result[0])
 
     const result = fieldMath.createPoint(
         fieldMath.Fp.mul(x_mont_coords_result[0], rinv),
@@ -191,11 +183,6 @@ export const running_sum = async (
         fieldMath.Fp.mul(t_mont_coords_result[0], rinv),
         fieldMath.Fp.mul(z_mont_coords_result[0], rinv),
     )
-
-    // console.log('result:', result)
-    // console.log('result.isAffine():', result.toAffine())
-    // console.log('expected.isAffine():', expected.toAffine())
-    // assert(are_point_arr_equal([result], [expected]))
 
     device.destroy()
 }
