@@ -28,7 +28,7 @@ import { cpu_smvp_signed } from './smvp';
 import { shader_invocation } from '../bucket_points_reduction'
 
 const p = BigInt('8444461749428370424248824938781546531375899335154063827935233455917409239041')
-const word_size = 13
+const word_size = 16
 const params = compute_misc_params(p, word_size)
 const num_words = params.num_words
 const r = params.r
@@ -108,6 +108,7 @@ export const cuzk_gpu = async (
         num_subtasks,
         num_columns,
     )
+
     const { point_x_sb, point_y_sb, scalar_chunks_sb } =
         await convert_point_coords_and_decompose_shaders(
             c_shader,

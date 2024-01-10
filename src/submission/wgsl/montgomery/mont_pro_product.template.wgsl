@@ -4,59 +4,89 @@ const MASK = {{ mask }}u;
 const TWO_POW_WORD_SIZE = {{ two_pow_word_size }}u;
 const N0 = {{ n0 }}u;
 
+fn gen_p_medium_wide() -> BigIntMediumWide {
+    var p = get_p();
+    var m: BigIntMediumWide;
+    for (var i = 0u; i < NUM_WORDS; i ++) {
+        m.limbs[i] = p.limbs[i];
+    }
+    return m;
+}
+
 fn get_p() -> BigInt {
     var p: BigInt;
 {{{ p_limbs }}}
     return p;
 }
 
-// An optimised variant of the Montgomery product algorithm from
-// https://github.com/mitschabaude/montgomery#13-x-30-bit-multiplication
-fn montgomery_product(x: ptr<function, BigInt>, y: ptr<function, BigInt>) -> BigInt {
-    var s: BigInt;
-    var p = get_p();
+// The CIOS method for Montgomery multiplication from Tolga Acar's thesis:
+// High-Speed Algorithms & Architectures For Number-Theoretic Cryptosystems
+// https://www.proquest.com/openview/1018972f191afe55443658b28041c118/1
+fn montgomery_product(a: ptr<function, BigInt>, b: ptr<function, BigInt>) -> BigInt {
+    var n = gen_p_medium_wide();
+    var n0 = 65535u;
+
+    var t: array<u32, {{ num_words_plus_two }}u>;
+    var x: BigInt;
 
     for (var i = 0u; i < NUM_WORDS; i ++) {
-        var t = s.limbs[0] + (*x).limbs[i] * (*y).limbs[0];
+        var c = 0u;
+        for (var j = 0u; j < NUM_WORDS; j ++) {
+            var r = t[j] + (*a).limbs[j] * (*b).limbs[i] + c;
+            c = r >> WORD_SIZE;
+            t[j] = r & MASK;
+        }
+        var r = t[NUM_WORDS] + c;
+        t[NUM_WORDS + 1u] = r >> WORD_SIZE;
+        t[NUM_WORDS] = r & MASK;
 
-        var tprime = t & MASK;
+        var m = (t[0] * n0) % 65536u;
+        r = t[0] + m * n.limbs[0];
+        c = r >> WORD_SIZE;
 
-        var qi = (N0 * tprime) & MASK;
-
-        var c = (t + qi * p.limbs[0]) >> WORD_SIZE;
-
-        s.limbs[0] = s.limbs[1] + (*x).limbs[i] * (*y).limbs[1] + qi * p.limbs[1] + c;
-
-        // Since nSafe = 32 when NUM_WORDS = 20, we can perform the following
-        // iterations without performing a carry.
-        for (var j = 2u; j < NUM_WORDS; j ++) {
-            s.limbs[j - 1u] = s.limbs[j] + (*x).limbs[i] * (*y).limbs[j] + qi * p.limbs[j];
+        for (var j = 1u; j < NUM_WORDS; j ++) {
+            r = t[j] + m * n.limbs[j] + c;
+            c = r >> WORD_SIZE;
+            t[j - 1u] = r & MASK;
         }
 
-        s.limbs[NUM_WORDS - 2u] = (*x).limbs[i] * (*y).limbs[NUM_WORDS - 1u] + qi * p.limbs[NUM_WORDS - 1u];
+        r = t[NUM_WORDS] + c;
+        c = r >> WORD_SIZE;
+        t[NUM_WORDS - 1u] = r & MASK;
+        t[NUM_WORDS] = t[NUM_WORDS + 1u] + c;
     }
 
-    // To paraphrase mitschabaude: a last round of carries to ensure that each
-    // limb is at most WORD_SIZE bits
-    var c = 0u;
-    for (var i = 0u; i < NUM_WORDS; i ++) {
-        var v = s.limbs[i] + c;
-        c = v >> WORD_SIZE;
-        s.limbs[i] = v & MASK;
+    // Check if t > n. If so, return n - t. Else, return t.
+    var t_lt_n = false;
+    for (var idx = 0u; idx < NUM_WORDS + 1u; idx ++) {
+        var i = NUM_WORDS - 1u - idx;
+        if (t[i] < n.limbs[i]) {
+            t_lt_n = true;
+            break;
+        } else if (t[i] > n.limbs[i]) {
+            break;
+        }
     }
 
-    return conditional_reduce(&s, &p);
-}
-
-fn conditional_reduce(x: ptr<function, BigInt>, y: ptr<function, BigInt>) -> BigInt {
-    // Determine if x > y
-    var x_gt_y = bigint_gt(x, y);
-
-    if (x_gt_y == 1u) {
-        var res: BigInt;
-        bigint_sub(x, y, &res);
-        return res;
+    var r: BigInt;
+    if (t_lt_n) {
+        for (var i = 0u; i < NUM_WORDS; i ++) {
+            r.limbs[i] = t[i];
+        }
+        return r;
+    } else {
+        var borrow = 0u;
+        var t_minus_n: BigIntMediumWide;
+        for (var i = 0u; i < NUM_WORDS; i ++) {
+            t_minus_n.limbs[i] = t[i] - n.limbs[i] - borrow;
+            if (t[i] < (n.limbs[i] + borrow)) {
+                t_minus_n.limbs[i] = t_minus_n.limbs[i] + 65536u;
+                borrow = 1u;
+            } else {
+                borrow = 0u;
+            }
+            x.limbs[i] = t_minus_n.limbs[i];
+        }
+        return x;
     }
-
-    return *x;
 }

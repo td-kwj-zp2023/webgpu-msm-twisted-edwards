@@ -45,6 +45,7 @@ export class ShaderManager {
     public d_limbs: string
     public mu_limbs: string
     public recompile = ''
+    public nsafe: number
 
     constructor(
         word_size: number,
@@ -53,6 +54,7 @@ export class ShaderManager {
         force_recompile = false,
     ) {
         const params = compute_misc_params(this.p, word_size)
+        this.nsafe = params.nsafe
         this.word_size = word_size
         this.chunk_size = chunk_size
         this.input_size = input_size
@@ -111,6 +113,8 @@ export class ShaderManager {
                 slack: this.slack,
                 num_words_mul_two: this.num_words * 2,
                 num_words_plus_one: this.num_words + 1,
+                num_words_plus_two: this.num_words * 2,
+                nsafe: this.nsafe,
                 chunk_size: this.chunk_size,
                 input_size: this.input_size,
                 recompile: this.recompile,
@@ -158,6 +162,10 @@ export class ShaderManager {
                 d_limbs: this.d_limbs,
                 mask: this.mask,
                 two_pow_word_size: this.two_pow_word_size,
+                num_words_mul_two: this.num_words * 2,
+                num_words_plus_one: this.num_words + 1,
+                num_words_plus_two: this.num_words * 2,
+                nsafe: this.nsafe,
                 index_shift: this.index_shift,
                 workgroup_size,
                 num_y_workgroups,
@@ -194,6 +202,10 @@ export class ShaderManager {
                 d_limbs: this.d_limbs,
                 mask: this.mask,
                 two_pow_word_size: this.two_pow_word_size,
+                num_words_mul_two: this.num_words * 2,
+                num_words_plus_one: this.num_words + 1,
+                num_words_plus_two: this.num_words * 2,
+                nsafe: this.nsafe,
                 workgroup_size,
                 recompile: this.recompile,
             },
