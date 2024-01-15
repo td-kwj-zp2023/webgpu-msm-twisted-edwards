@@ -100,8 +100,8 @@ export const cuzk_gpu = async (
         c_num_x_workgroups = 4
         c_num_y_workgroups = input_size / c_workgroup_size / c_num_x_workgroups
     } else if (input_size > 32768 && input_size <= 65536) {
-        c_workgroup_size = 256
-        c_num_x_workgroups = 8
+        c_workgroup_size = 64
+        c_num_x_workgroups = 64
         c_num_y_workgroups = input_size / c_workgroup_size / c_num_x_workgroups
     } else if (input_size > 65536 && input_size <= 131072) {
         c_workgroup_size = 256
@@ -195,8 +195,8 @@ export const cuzk_gpu = async (
     )
 
     const half_num_columns = num_columns / 2
-    let s_workgroup_size = 256
-    let s_num_x_workgroups = 64
+    let s_workgroup_size = 64
+    let s_num_x_workgroups = 256
     let s_num_y_workgroups = (half_num_columns / s_workgroup_size / s_num_x_workgroups)
     let s_num_z_workgroups = num_subtasks
 
