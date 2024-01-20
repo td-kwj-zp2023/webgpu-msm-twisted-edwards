@@ -27,7 +27,7 @@ import {
     bigIntPointToExtPointType,
 } from '../utils'
 import { cpu_transpose } from './transpose'
-import { cpu_smvp_signed } from './smvp';
+import { cpu_smvp_signed } from './smvp'
 import { shader_invocation } from '../bucket_points_reduction'
 
 import { FieldMath } from "../../reference/utils/FieldMath"
@@ -148,13 +148,33 @@ export const do_cuzk_gpu = async (
     let c_num_x_workgroups = 1
     let c_num_y_workgroups = input_size / c_workgroup_size / c_num_x_workgroups
 
-    if (input_size < 256) {
+    if (input_size <= 256) {
         c_workgroup_size = input_size
         c_num_x_workgroups = 1
         c_num_y_workgroups = 1
-    } else if (input_size >= 256 && input_size < 65536) {
+    } else if (input_size > 256 && input_size <= 32768) {
+        c_workgroup_size = 64
+        c_num_x_workgroups = 4
+        c_num_y_workgroups = input_size / c_workgroup_size / c_num_x_workgroups
+    } else if (input_size > 32768 && input_size <= 65536) {
         c_workgroup_size = 256
-        c_num_x_workgroups = input_size / c_workgroup_size
+        c_num_x_workgroups = 8
+        c_num_y_workgroups = input_size / c_workgroup_size / c_num_x_workgroups
+    } else if (input_size > 65536 && input_size <= 131072) {
+        c_workgroup_size = 256
+        c_num_x_workgroups = 8
+        c_num_y_workgroups = input_size / c_workgroup_size / c_num_x_workgroups
+    } else if (input_size > 131072 && input_size <= 262144) {
+        c_workgroup_size = 256
+        c_num_x_workgroups = 32
+        c_num_y_workgroups = input_size / c_workgroup_size / c_num_x_workgroups
+    } else if (input_size > 262144 && input_size <= 524288) {
+        c_workgroup_size = 256
+        c_num_x_workgroups = 32
+        c_num_y_workgroups = input_size / c_workgroup_size / c_num_x_workgroups
+    } else if (input_size > 524288 && input_size <= 1048576) {
+        c_workgroup_size = 256
+        c_num_x_workgroups = 32
         c_num_y_workgroups = input_size / c_workgroup_size / c_num_x_workgroups
     }
 
@@ -164,6 +184,9 @@ export const do_cuzk_gpu = async (
         num_subtasks,
         num_columns,
     )
+    // Create single command encoder for device
+    const commandEncoder = device.createCommandEncoder()
+
 
     // Convert the affine points to Montgomery form and decompose the scalars
     // using a single shader
@@ -173,6 +196,7 @@ export const do_cuzk_gpu = async (
             c_num_x_workgroups,
             c_num_y_workgroups,
             device,
+            commandEncoder,
             baseAffinePoints,
             num_words, 
             word_size,
@@ -193,7 +217,7 @@ export const do_cuzk_gpu = async (
 
     // Buffers to  store the SMVP result (the bucket sum). They are overwritten
     // per iteration
-    const bucket_sum_coord_bytelength = (num_columns / 2 + 1) * num_words * 4 * 16
+    const bucket_sum_coord_bytelength = (num_columns / 2 + 1) * num_words * 4 * num_subtasks
     const bucket_sum_x_sb = create_sb(device, bucket_sum_coord_bytelength)
     const bucket_sum_y_sb = create_sb(device, bucket_sum_coord_bytelength)
     const bucket_sum_t_sb = create_sb(device, bucket_sum_coord_bytelength)
@@ -215,8 +239,6 @@ export const do_cuzk_gpu = async (
     const out_z_sb = create_sb(device, bucket_sum_coord_bytelength / 2)
 
     const t_shader = shaderManager.gen_transpose_shader(num_subtasks)
-    // Create single command encoder for device
-    const commandEncoder = device.createCommandEncoder()
 
     // Transpose
     const {
@@ -234,13 +256,13 @@ export const do_cuzk_gpu = async (
     )
 
     const half_num_columns = num_columns / 2
-    let s_workgroup_size = 128
-    let s_num_x_workgroups = 256
+    let s_workgroup_size = 256
+    let s_num_x_workgroups = 64
     let s_num_y_workgroups = (half_num_columns / s_workgroup_size / s_num_x_workgroups)
-    let s_num_z_workgroups = 16
+    let s_num_z_workgroups = num_subtasks
 
-    if (half_num_columns <= 32768) {
-        s_workgroup_size = 64
+    if (half_num_columns < 32768) {
+        s_workgroup_size = 32
         s_num_x_workgroups = 1
         s_num_y_workgroups = Math.ceil(half_num_columns / s_workgroup_size / s_num_x_workgroups)
     }
@@ -254,14 +276,7 @@ export const do_cuzk_gpu = async (
 
     const smvp_shader = shaderManager.gen_smvp_shader(
         s_workgroup_size,
-        s_num_y_workgroups,
-        s_num_z_workgroups,
         num_columns,
-    )
-
-    const b_workgroup_size = 32
-    const bucket_reduction_shader = shaderManager.gen_bucket_reduction_shader(
-        b_workgroup_size,
     )
 
     // SMVP and multiplication by the bucket index
@@ -269,7 +284,7 @@ export const do_cuzk_gpu = async (
         smvp_shader,
         s_num_x_workgroups,
         s_num_y_workgroups,
-        s_workgroup_size,
+        s_num_z_workgroups,
         device,
         commandEncoder,
         num_subtasks,
@@ -288,10 +303,11 @@ export const do_cuzk_gpu = async (
         params,
     )
 
+    const bucket_reduction_shader = shaderManager.gen_bucket_reduction_shader()
+
     // Bucket aggregation
     await bucket_aggregation(
         bucket_reduction_shader,
-        b_workgroup_size,
         device,
         commandEncoder,
         out_x_sb,
@@ -309,37 +325,13 @@ export const do_cuzk_gpu = async (
     )
 
     // Perform round of copying 
-    commandEncoder.copyBufferToBuffer(
-        out_x_sb,
-        0,
-        subtask_sum_x_sb,
-        0,
-        num_subtasks * num_words * 4,
-    )
-    commandEncoder.copyBufferToBuffer(
-        out_y_sb,
-        0,
-        subtask_sum_y_sb,
-        0,
-        num_subtasks * num_words * 4,
-    )
-    commandEncoder.copyBufferToBuffer(
-        out_t_sb,
-        0,
-        subtask_sum_t_sb,
-        0,
-        num_subtasks * num_words * 4,
-    )
-    commandEncoder.copyBufferToBuffer(
-        out_z_sb,
-        0,
-        subtask_sum_z_sb,
-        0,
-        num_subtasks * num_words * 4,
-    )
+    const os = num_subtasks * num_words * 4
+    commandEncoder.copyBufferToBuffer(out_x_sb, 0, subtask_sum_x_sb, 0, os)
+    commandEncoder.copyBufferToBuffer(out_y_sb, 0, subtask_sum_y_sb, 0, os)
+    commandEncoder.copyBufferToBuffer(out_t_sb, 0, subtask_sum_t_sb, 0, os)
+    commandEncoder.copyBufferToBuffer(out_z_sb, 0, subtask_sum_z_sb, 0, os)
 
     // Read the subtask sums from the GPU
-    const start = Date.now()
     const subtask_sum_data = await read_from_gpu(
         device,
         commandEncoder,
@@ -376,8 +368,6 @@ export const do_cuzk_gpu = async (
         result = result.multiply(m)
         result = result.add(points[i])
     }
-    const elapsed = Date.now() - start
-    console.log(`Final steps (reading subtask sums, conversion out of Montgomery form, and Horner's rule) took ${elapsed}ms`)
 
     if (log_result) {
         console.log(result.toAffine())
@@ -415,6 +405,7 @@ export const convert_point_coords_and_decompose_shaders = async (
     num_x_workgroups: number,
     num_y_workgroups: number,
     device: GPUDevice,
+    commandEncoder: GPUCommandEncoder,
     baseAffinePoints: BigIntPoint[],
     num_words: number,
     word_size: number,
@@ -495,14 +486,7 @@ export const convert_point_coords_and_decompose_shaders = async (
         'main',
     )
 
-    const commandEncoder = device.createCommandEncoder()
-
-    const start = Date.now()
     execute_pipeline(commandEncoder, computePipeline, bindGroup, num_x_workgroups, num_y_workgroups, 1)
-    device.queue.submit([commandEncoder.finish()])
-    await device.queue.onSubmittedWorkDone()
-    const elapsed = Date.now() - start
-    console.log(`convert_point_coords_and_decompose_scalars took ${elapsed}ms`)
 
     // Debug the output of the shader. This should **not** be run in
     // production.
@@ -537,7 +521,7 @@ export const convert_point_coords_and_decompose_shaders = async (
         const expected = decompose_scalars_signed(scalars, num_subtasks, chunk_size)
 
         for (let j = 0; j < expected.length; j++) {
-            let z = 0;
+            let z = 0
             for (let i = j * input_size; i < (j + 1) * input_size; i++) {
                 if (computed_chunks[i] !== expected[j][z]) {
                     throw Error(`scalar decomp mismatch at ${i}`)
@@ -630,15 +614,10 @@ export const transpose_gpu = async (
         'main',
     )
     
-    const start = Date.now()
-    
     execute_pipeline(commandEncoder, computePipeline, bindGroup, num_x_workgroups, num_y_workgroups, 1)
 
     // Debug the output of the shader. This should **not** be run in
     // production.
-    const elapsed = Date.now() - start
-    console.log(`transpose took ${elapsed}ms`)
-
     if (debug) {
         const data = await read_from_gpu(
             device,
@@ -681,7 +660,7 @@ export const smvp_gpu = async (
     shaderCode: string,
     num_x_workgroups: number,
     num_y_workgroups: number,
-    workgroup_size: number,
+    num_z_workgroups: number,
     device: GPUDevice,
     commandEncoder: GPUCommandEncoder,
     num_subtasks: number,
@@ -705,19 +684,9 @@ export const smvp_gpu = async (
     const rinv = params.rinv
 
     const params_bytes = numbers_to_u8s_for_gpu(
-        [input_size],
+        [input_size, num_y_workgroups, num_z_workgroups],
     )
     const params_ub = create_and_write_ub(device, params_bytes)
-    const half_num_columns = num_csr_cols / 2
-
-    let num_z_workgroups = 16
-
-    if (num_csr_cols < 256) {
-        workgroup_size = 1
-        num_x_workgroups = half_num_columns
-        num_y_workgroups = 1
-        num_z_workgroups = 1
-    }
 
     const bindGroupLayout = create_bind_group_layout(
         device,
@@ -849,7 +818,6 @@ export const smvp_gpu = async (
  */
 export const bucket_aggregation = async (
     shaderCode: string,
-    workgroup_size: number,
     device: GPUDevice,
     commandEncoder: GPUCommandEncoder,
     out_x_sb: GPUBuffer,
@@ -929,7 +897,7 @@ export const bucket_aggregation = async (
             out_z_sb,
             s,
             num_words,
-            workgroup_size,
+            num_subtasks,
         )
 
         const e = s
