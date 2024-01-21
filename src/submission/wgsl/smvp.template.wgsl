@@ -164,10 +164,6 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         bucket_sum_y[id + (subtask_offset * h)] = sum.y;
         bucket_sum_z[id + (subtask_offset * h)] = sum.z;
         bucket_sum_t[id + (subtask_offset * h)] = sum.t;
-        // bucket_sum_x[id] = sum.x;
-        // bucket_sum_y[id] = sum.y;
-        // bucket_sum_z[id] = sum.z;
-        // bucket_sum_t[id] = sum.t;
     }
 
     {{{ recompile }}}
