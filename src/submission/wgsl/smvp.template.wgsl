@@ -111,8 +111,19 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         let row_end = row_ptr[rp_offset + row_idx + 1u];
         var sum = inf;
 
+        var k = row_begin;
+        if (k < row_end) {
+            let idx = val_idx[(subtask_idx + subtask_offset) * input_size + k];
+            var x = new_point_x[idx];
+            var y = new_point_y[idx];
+            var t = montgomery_product(&x, &y);
+            var z = get_r();
+            sum = Point(x, y, t, z);
+        }
+        k ++;
+
         // Add up all the points in the bucket
-        for (var k = row_begin; k < row_end; k ++) {
+        for (; k < row_end; k ++) {
             let idx = val_idx[(subtask_idx + subtask_offset) * input_size + k];
 
             var x = new_point_x[idx];
