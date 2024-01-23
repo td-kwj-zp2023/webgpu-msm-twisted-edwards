@@ -93,6 +93,7 @@ export const cuzk_gpu = async (
     let c_num_x_workgroups = 128
     let c_num_y_workgroups = input_size / c_workgroup_size / c_num_x_workgroups
 
+    // Sanity check this approach of using workgroup sizes of 256...
     if (input_size <= 256) {
         c_workgroup_size = input_size
         c_num_x_workgroups = 1
@@ -123,6 +124,9 @@ export const cuzk_gpu = async (
         c_num_y_workgroups = input_size / c_workgroup_size / c_num_x_workgroups
     }
 
+    // Start timer
+    const startTime = performance.now(); // Record start time
+
     const c_shader = shaderManager.gen_convert_points_and_decomp_scalars_shader(
         c_workgroup_size,
         c_num_y_workgroups,
@@ -131,7 +135,7 @@ export const cuzk_gpu = async (
     )
 
     // Create single command encoder for device
-    const commandEncoder = device.createCommandEncoder()
+    // const commandEncoder = device.createCommandEncoder()
 
     const { point_x_sb, point_y_sb, scalar_chunks_sb } =
         await convert_point_coords_and_decompose_shaders(
@@ -139,7 +143,7 @@ export const cuzk_gpu = async (
             c_num_x_workgroups,
             c_num_y_workgroups,
             device,
-            commandEncoder,
+            // commandEncoder,
             baseAffinePoints,
             num_words, 
             word_size,
@@ -148,6 +152,11 @@ export const cuzk_gpu = async (
             num_columns,
             chunk_size,
         )
+
+    // End timer
+    const endTime = performance.now()
+    const executionTime = endTime - startTime;
+    console.log(`convert_point_coords_and_decompose_shaders execution time: ${executionTime} milliseconds`);
 
     // Buffers to contain the sum of all the bucket sums per subtask
     const subtask_sum_coord_bytelength = num_subtasks * num_words * 4
@@ -179,6 +188,9 @@ export const cuzk_gpu = async (
     const out_t_sb = create_sb(device, bucket_sum_coord_bytelength / 2)
     const out_z_sb = create_sb(device, bucket_sum_coord_bytelength / 2)
 
+    // Start timer
+    const startTime2 = performance.now(); // Record start time
+
     const t_shader = shaderManager.gen_transpose_shader(num_subtasks)
 
     // Transpose
@@ -188,13 +200,18 @@ export const cuzk_gpu = async (
     } = await transpose_gpu(
         t_shader,
         device,
-        commandEncoder,
+        // commandEncoder,
         input_size,
         num_columns,
         num_rows,
         num_subtasks,    
         scalar_chunks_sb,
     )
+
+    // End timer
+    const endTime2 = performance.now()
+    const executionTime2 = endTime2 - startTime2;
+    console.log(`transpose_gpu execution time: ${executionTime2} milliseconds`);
 
     const half_num_columns = num_columns / 2
     let s_workgroup_size = 256
@@ -217,7 +234,7 @@ export const cuzk_gpu = async (
 
     // This is a dynamic variable that determines the number
     // of CSR matrices processed per invocation of the shader. 
-    const num_subtask_chunk_size = num_subtasks / 2;
+    const num_subtask_chunk_size = 1; // num_sumtasks / 2
 
     const smvp_shader = shaderManager.gen_smvp_shader(
         s_workgroup_size,
@@ -225,6 +242,9 @@ export const cuzk_gpu = async (
     )
 
     for (let offset = 0; offset < num_subtasks; offset += num_subtask_chunk_size) {
+        // Start timer
+        const startTime3 = performance.now(); // Record start time
+
         // SMVP and multiplication by the bucket index
         await smvp_gpu(
             smvp_shader,
@@ -233,7 +253,7 @@ export const cuzk_gpu = async (
             s_num_z_workgroups,
             offset,
             device,
-            commandEncoder,
+            // commandEncoder,
             num_subtasks,
             num_columns,
             input_size,
@@ -247,26 +267,41 @@ export const cuzk_gpu = async (
             bucket_sum_t_sb,
             bucket_sum_z_sb,
         )
+
+        // End timer
+        const endTime3 = performance.now()
+        const executionTime3 = endTime3 - startTime3;
+        console.log(`smvp_gpu execution time: ${executionTime3} milliseconds`);
     }
 
-    const bucket_reduction_shader = shaderManager.gen_bucket_reduction_shader()
+    // Start timer
+    const startTime4 = performance.now(); // Record start time
 
-    // Bucket aggregation
-    await bucket_aggregation(
-        bucket_reduction_shader,
-        device,
-        commandEncoder,
-        out_x_sb,
-        out_y_sb,
-        out_t_sb,
-        out_z_sb,
-        bucket_sum_x_sb,
-        bucket_sum_y_sb,
-        bucket_sum_t_sb,
-        bucket_sum_z_sb,
-        num_columns / 2,
-        num_subtasks,
-    )
+    // Create single command encoder for device
+    const commandEncoder = device.createCommandEncoder()
+
+    const bucket_reduction_shader = shaderManager.gen_bucket_reduction_shader(num_columns)
+
+    // for (let offset = 0; offset < num_subtasks; offset += num_subtask_chunk_size) {
+        // console.log("offset is: ", offset)
+        // Bucket aggregation
+        await bucket_aggregation(
+            bucket_reduction_shader,
+            device,
+            commandEncoder,
+            out_x_sb,
+            out_y_sb,
+            out_t_sb,
+            out_z_sb,
+            bucket_sum_x_sb,
+            bucket_sum_y_sb,
+            bucket_sum_t_sb,
+            bucket_sum_z_sb,
+            num_columns / 2,
+            num_subtasks,
+            0
+        )
+    // }
 
     // Perform round of copying 
     const os = num_subtasks * num_words * 4
@@ -281,6 +316,11 @@ export const cuzk_gpu = async (
         commandEncoder,
         [ subtask_sum_x_sb, subtask_sum_y_sb, subtask_sum_t_sb, subtask_sum_z_sb ],
     )
+
+    // End timer
+    const endTime4 = performance.now()
+    const executionTime4 = endTime4 - startTime4;
+    console.log(`bucket_aggregation execution time: ${executionTime4} milliseconds`);
 
     // Destroy the GPU device object
     device.destroy()
@@ -349,7 +389,7 @@ export const convert_point_coords_and_decompose_shaders = async (
     num_x_workgroups: number,
     num_y_workgroups: number,
     device: GPUDevice,
-    commandEncoder: GPUCommandEncoder,
+    // commandEncoder: GPUCommandEncoder,
     baseAffinePoints: BigIntPoint[],
     num_words: number,
     word_size: number,
@@ -369,6 +409,8 @@ export const convert_point_coords_and_decompose_shaders = async (
         x_coords[i] = baseAffinePoints[i].x
         y_coords[i] = baseAffinePoints[i].y
     }
+
+    const commandEncoder = device.createCommandEncoder()
 
     // Convert points to bytes (performs ~2x faster than
     // `bigints_to_16_bit_words_for_gpu`)
@@ -428,6 +470,10 @@ export const convert_point_coords_and_decompose_shaders = async (
     )
 
     execute_pipeline(commandEncoder, computePipeline, bindGroup, num_x_workgroups, num_y_workgroups, 1)
+    
+    // Finish encoding commands and submit to GPU device command queue
+    device.queue.submit([commandEncoder.finish()])
+    await device.queue.onSubmittedWorkDone()
 
     // Debug the output of the shader. This should **not** be run in
     // production.
@@ -483,7 +529,7 @@ export const convert_point_coords_and_decompose_shaders = async (
 export const transpose_gpu = async (
     shaderCode: string,
     device: GPUDevice,
-    commandEncoder: GPUCommandEncoder,
+    // commandEncoder: GPUCommandEncoder,
     input_size: number,
     num_columns: number,
     num_rows: number,
@@ -512,6 +558,8 @@ export const transpose_gpu = async (
      *   - csc_row_idx (nnz)
      *      - The cumulative sum of the number of nonzero elements per row
      */
+
+    const commandEncoder = device.createCommandEncoder()
 
     const all_csc_col_ptr_sb = create_sb(device, num_subtasks * (num_columns + 1) * 4)
     const all_csc_val_idxs_sb = create_sb(device, scalar_chunks_sb.size)
@@ -556,6 +604,10 @@ export const transpose_gpu = async (
     )
     
     execute_pipeline(commandEncoder, computePipeline, bindGroup, num_x_workgroups, num_y_workgroups, 1)
+
+    // Finish encoding commands and submit to GPU device command queue
+    device.queue.submit([commandEncoder.finish()])
+    await device.queue.onSubmittedWorkDone()
 
     // Debug the output of the shader. This should **not** be run in
     // production.
@@ -604,7 +656,7 @@ export const smvp_gpu = async (
     num_z_workgroups: number,
     offset: number,
     device: GPUDevice,
-    commandEncoder: GPUCommandEncoder,
+    // commandEncoder: GPUCommandEncoder,
     num_subtasks: number,
     num_csr_cols: number,
     input_size: number,
@@ -619,6 +671,8 @@ export const smvp_gpu = async (
     bucket_sum_z_sb: GPUBuffer,
     debug = false,
 ) => {
+    const commandEncoder = device.createCommandEncoder()
+
     const params_bytes = numbers_to_u8s_for_gpu(
         [input_size, num_y_workgroups, num_z_workgroups, offset],
     )
@@ -663,6 +717,10 @@ export const smvp_gpu = async (
     )
 
     execute_pipeline(commandEncoder, computePipeline, bindGroup, num_x_workgroups, num_y_workgroups, num_z_workgroups)
+
+    // Finish encoding commands and submit to GPU device command queue
+    device.queue.submit([commandEncoder.finish()])
+    await device.queue.onSubmittedWorkDone()
 
     // Debug the output of the shader. This should **not** be run in production.
     if (debug) {
@@ -768,6 +826,7 @@ export const bucket_aggregation = async (
     bucket_sum_z_sb: GPUBuffer,
     num_columns: number,
     num_subtasks: number,
+    offset: number,
     debug = false,
 ) => {
     const params = compute_misc_params(p, word_size)
@@ -816,6 +875,8 @@ export const bucket_aggregation = async (
         )
     }
 
+    // console.log("num_columns is: ", num_columns)
+
     let s = num_columns
     while (s > 1) {
         await shader_invocation(
@@ -833,6 +894,7 @@ export const bucket_aggregation = async (
             s,
             num_words,
             num_subtasks,
+            offset
         )
 
         const e = s

@@ -22,7 +22,7 @@ var<storage, read_write> out_t: array<BigInt>;
 @group(0) @binding(7)
 var<storage, read_write> out_z: array<BigInt>;
 @group(0) @binding(8)
-var<uniform> params: vec2<u32>;
+var<uniform> params: vec3<u32>;
 
 fn get_r() -> BigInt {
     var r: BigInt;
@@ -47,13 +47,22 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     // recompilation.
     let num_y_workgroups = params[0];
     let num_z_workgroups = params[1];
+    let subtask_offset = params[2];
 
     var gidx = global_id.x;
     var gidy = global_id.y;
     var gidz = global_id.z;
     let id = (gidx * num_y_workgroups + gidy) * num_z_workgroups + gidz;
 
-    let a_x = point_x[id * 2u];
+    // let num_columns = {{ num_columns }}u;
+    // let h = {{ half_num_columns }}u;
+
+    // // Define custom subtask_idx
+    // let subtask_idx = (id / h);
+
+    // let rp_offset = (subtask_idx + subtask_offset) * (num_columns + 1u);
+
+    let a_x = point_x[id * 2u]; // add rp_offset 
     let a_y = point_y[id * 2u];
     let a_t = point_t[id * 2u];
     let a_z = point_z[id * 2u];
@@ -68,7 +77,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     // Add two points.
     let result = add_points(pt_a, pt_b);
 
-    out_x[id] = result.x;
+    out_x[id] = result.x; // add id + (subtask_offset * h)
     out_y[id] = result.y;
     out_t[id] = result.t;
     out_z[id] = result.z;
