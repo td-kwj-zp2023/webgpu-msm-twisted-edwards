@@ -22,6 +22,7 @@ export const shader_invocation = async (
     num_points: number,
     num_words: number,
     num_subtasks: number,
+    offset: number
 ) => {
     const num_z_workgroups = 1
     const compute_ideal_num_workgroups = (num_points: number) => {
@@ -40,6 +41,7 @@ export const shader_invocation = async (
         [
             num_y_workgroups,
             num_z_workgroups,
+            offset
         ],
     )
     const params_ub = create_and_write_ub(device, params_bytes)
@@ -83,7 +85,7 @@ export const shader_invocation = async (
 
     execute_pipeline(commandEncoder, computePipeline, bindGroup, num_x_workgroups, num_y_workgroups, num_z_workgroups)
 
-    const size = (Math.ceil(num_points / 2) * 4 * num_words) * num_subtasks
+    const size = (Math.ceil(num_points / 2) * 4 * num_words) * num_subtasks // multiply by offset instead
     commandEncoder.copyBufferToBuffer(out_x_sb, 0, x_coords_sb, 0, size)
     commandEncoder.copyBufferToBuffer(out_y_sb, 0, y_coords_sb, 0, size)
     commandEncoder.copyBufferToBuffer(out_t_sb, 0, t_coords_sb, 0, size)

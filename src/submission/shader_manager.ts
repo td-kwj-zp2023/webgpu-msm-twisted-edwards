@@ -174,7 +174,9 @@ export class ShaderManager {
         return shaderCode
     }
 
-    public gen_bucket_reduction_shader() {
+    public gen_bucket_reduction_shader(
+        num_csr_cols: number,
+    ) {
         // Important: workgroup_size should be constant regardless of the number of
         // points, as setting a different workgroup_size will cause a costly
         // recompile. This constant is only passed into the shader as a template
@@ -190,6 +192,8 @@ export class ShaderManager {
                 d_limbs: this.d_limbs,
                 mask: this.mask,
                 two_pow_word_size: this.two_pow_word_size,
+                num_columns: num_csr_cols,
+                half_num_columns: num_csr_cols / 2,
                 recompile: this.recompile,
             },
             {

@@ -128,6 +128,7 @@ export const test_bucket_points_reduction = async (
             s,
             num_words,
             1,
+            1 // fix benchmark
         )
         num_invocations ++
 
