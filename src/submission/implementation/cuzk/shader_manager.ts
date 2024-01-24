@@ -15,6 +15,7 @@ import montgomery_product_funcs from "../wgsl/montgomery/mont_pro_product.templa
 import transpose_serial_shader from "../wgsl/cuzk/transpose.wgsl";
 import smvp_shader from "../wgsl/cuzk/smvp.template.wgsl";
 import bucket_points_reduction_shader from "../wgsl/cuzk/bucket_points_reduction.template.wgsl";
+import bucket_points_reduction_shader_modified_1 from "../wgsl/cuzk/bucket_points_reduction_mod_1.template.wgsl";
 
 import {
   compute_misc_params,
@@ -180,6 +181,35 @@ export class ShaderManager {
     // variable for ease of benchmarking.
     const shaderCode = mustache.render(
       bucket_points_reduction_shader,
+      {
+        word_size: this.word_size,
+        num_words: this.num_words,
+        n0: this.n0,
+        p_limbs: this.p_limbs,
+        r_limbs: this.r_limbs,
+        d_limbs: this.d_limbs,
+        mask: this.mask,
+        two_pow_word_size: this.two_pow_word_size,
+        recompile: this.recompile,
+      },
+      {
+        structs,
+        bigint_funcs,
+        field_funcs,
+        ec_funcs,
+        montgomery_product_funcs,
+      },
+    );
+    return shaderCode;
+  }
+
+  public gen_bucket_reduction_shader_modified_1() {
+    // Important: workgroup_size should be constant regardless of the number of
+    // points, as setting a different workgroup_size will cause a costly
+    // recompile. This constant is only passed into the shader as a template
+    // variable for ease of benchmarking.
+    const shaderCode = mustache.render(
+      bucket_points_reduction_shader_modified_1,
       {
         word_size: this.word_size,
         num_words: this.num_words,

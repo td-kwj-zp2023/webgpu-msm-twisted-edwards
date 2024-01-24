@@ -82,7 +82,7 @@ export const add_points_benchmarks = async (
   {}: BigIntPoint[],
   {}: bigint[],
 ): Promise<{ x: bigint; y: bigint }> => {
-  const cost = 2;
+  const cost = 16384;
   const fieldMath = new FieldMath();
   fieldMath.aleoD = BigInt(-1);
   const p = BigInt(

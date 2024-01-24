@@ -8,12 +8,12 @@ import {
   create_sb,
   read_from_gpu,
 } from "../implementation/cuzk/gpu";
-import structs from "./wgsl/struct/structs.template.wgsl";
-import bigint_funcs from "./wgsl/bigint/bigint.template.wgsl";
-import field_funcs from "./wgsl/field/field.template.wgsl";
-import ec_funcs from "./wgsl/curve/ec.template.wgsl";
-import montgomery_product_funcs from "./wgsl/montgomery/mont_pro_product.template.wgsl";
-import bucket_points_reduction_shader from "./wgsl/bucket_points_reduction.template.wgsl";
+import structs from "../implementation/wgsl/struct/structs.template.wgsl";
+import bigint_funcs from "../implementation/wgsl/bigint/bigint.template.wgsl";
+import field_funcs from "../implementation/wgsl/field/field.template.wgsl";
+import ec_funcs from "../implementation/wgsl/curve/ec.template.wgsl";
+import montgomery_product_funcs from "../implementation/wgsl/montgomery/mont_pro_product.template.wgsl";
+import bucket_points_reduction_shader from "../implementation/wgsl/cuzk/bucket_points_reduction.template.wgsl";
 import {
   are_point_arr_equal,
   compute_misc_params,
