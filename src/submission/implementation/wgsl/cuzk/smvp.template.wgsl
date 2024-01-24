@@ -141,7 +141,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         }
 
         // Multiply the bucket sum by the scalar chunk / bucket ID
-        sum = double_and_add(sum, bucket_idx);
+        // sum = double_and_add(sum, bucket_idx);
 
         // Store the result in buckets[thread_id]. Each thread must use
         // a unique storage location (thread_id) to prevent race

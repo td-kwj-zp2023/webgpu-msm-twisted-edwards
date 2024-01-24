@@ -138,6 +138,9 @@ export const compute_msm = async (
     c_num_y_workgroups = input_size / c_workgroup_size / c_num_x_workgroups;
   }
 
+  // Start timer
+  const startTime = performance.now(); // Record start time
+  
   const c_shader = shaderManager.gen_convert_points_and_decomp_scalars_shader(
     c_workgroup_size,
     c_num_y_workgroups,
@@ -146,7 +149,7 @@ export const compute_msm = async (
   );
 
   // Create single command encoder for device
-  const commandEncoder = device.createCommandEncoder();
+  // const commandEncoder = device.createCommandEncoder();
 
   const { point_x_sb, point_y_sb, scalar_chunks_sb } =
     await convert_point_coords_and_decompose_shaders(
@@ -154,7 +157,7 @@ export const compute_msm = async (
       c_num_x_workgroups,
       c_num_y_workgroups,
       device,
-      commandEncoder,
+      // commandEncoder,
       baseAffinePoints as BigIntPoint[],
       num_words,
       word_size,
@@ -163,6 +166,10 @@ export const compute_msm = async (
       num_columns,
       chunk_size,
     );
+
+  const endTime = performance.now();
+  const executionTime = endTime - startTime; 
+  console.log(`convert_point_coords_and_decompose_shaders execution time: ${executionTime} milliseconds`);
 
   // Buffers to contain the sum of all the bucket sums per subtask
   const subtask_sum_coord_bytelength = num_subtasks * num_words * 4;
@@ -195,19 +202,26 @@ export const compute_msm = async (
   const out_t_sb = create_sb(device, bucket_sum_coord_bytelength / 2);
   const out_z_sb = create_sb(device, bucket_sum_coord_bytelength / 2);
 
+  // Start timer
+  const startTime2 = performance.now(); // Record start time
+
   const t_shader = shaderManager.gen_transpose_shader(num_subtasks);
 
   // Transpose
   const { all_csc_col_ptr_sb, all_csc_val_idxs_sb } = await transpose_gpu(
     t_shader,
     device,
-    commandEncoder,
+    // commandEncoder,
     input_size,
     num_columns,
     num_rows,
     num_subtasks,
     scalar_chunks_sb,
   );
+
+  const endTime2 = performance.now();
+  const executionTime2 = endTime2 - startTime2; 
+  console.log(`transpose_gpu execution time: ${executionTime2} milliseconds`);
 
   const half_num_columns = num_columns / 2;
   let s_workgroup_size = 256;
@@ -231,6 +245,9 @@ export const compute_msm = async (
     s_num_z_workgroups = 1;
   }
 
+  // Start timer
+  const startTime3 = performance.now(); // Record start time
+
   const smvp_shader = shaderManager.gen_smvp_shader(
     s_workgroup_size,
     num_columns,
@@ -243,7 +260,7 @@ export const compute_msm = async (
     s_num_y_workgroups,
     s_num_z_workgroups,
     device,
-    commandEncoder,
+    // commandEncoder,
     num_subtasks,
     num_columns,
     input_size,
@@ -258,11 +275,25 @@ export const compute_msm = async (
     bucket_sum_z_sb,
   );
 
-  const bucket_reduction_shader = shaderManager.gen_bucket_reduction_shader();
+  const endTime3 = performance.now();
+  const executionTime3 = endTime3 - startTime3; 
+  console.log(`smvp_gpu execution time: ${executionTime3} milliseconds`);
 
-  // Bucket aggregation
-  await bucket_aggregation(
-    bucket_reduction_shader,
+  const commandEncoder = device.createCommandEncoder();
+  
+  // Start timer
+  const startTime4 = performance.now(); // Record start time
+
+  // Bucket reduction requires K sequential computations, allowing for only 2K parallel additions 
+  // to be performed a time. The modified bucket reduction shader will break 2^c buckets in the Kth window 
+  // into M segments of size U, where U = 2^c / M. For instance, instead of performing
+  // a sequential running sum on 2^16 bucket-sums per window, we can perform 2^16 / M additions
+  // sequentially on M threads in-paralle. 
+
+  const bucket_reduction_shader_1 = shaderManager.gen_bucket_reduction_shader_modified_1();
+
+  await bucket_aggregation_modified(
+    bucket_reduction_shader_1,
     device,
     commandEncoder,
     out_x_sb,
@@ -277,74 +308,97 @@ export const compute_msm = async (
     num_subtasks,
   );
 
-  // Perform round of copying
-  const os = num_subtasks * num_words * 4;
-  commandEncoder.copyBufferToBuffer(out_x_sb, 0, subtask_sum_x_sb, 0, os);
-  commandEncoder.copyBufferToBuffer(out_y_sb, 0, subtask_sum_y_sb, 0, os);
-  commandEncoder.copyBufferToBuffer(out_t_sb, 0, subtask_sum_t_sb, 0, os);
-  commandEncoder.copyBufferToBuffer(out_z_sb, 0, subtask_sum_z_sb, 0, os);
+  // const bucket_reduction_shader = shaderManager.gen_bucket_reduction_shader();
 
-  // Read the subtask sums from the GPU
-  const subtask_sum_data = await read_from_gpu(device, commandEncoder, [
-    subtask_sum_x_sb,
-    subtask_sum_y_sb,
-    subtask_sum_t_sb,
-    subtask_sum_z_sb,
-  ]);
+  // Bucket aggregation
+  // await bucket_aggregation(
+  //   bucket_reduction_shader,
+  //   device,
+  //   commandEncoder,
+  //   out_x_sb,
+  //   out_y_sb,
+  //   out_t_sb,
+  //   out_z_sb,
+  //   bucket_sum_x_sb,
+  //   bucket_sum_y_sb,
+  //   bucket_sum_t_sb,
+  //   bucket_sum_z_sb,
+  //   num_columns / 2,
+  //   num_subtasks,
+  // );
 
-  // Destroy the GPU device object
-  device.destroy();
+  const endTime4 = performance.now();
+  const executionTime4 = endTime4 - startTime4; 
+  console.log(`bucket_aggregation execution time: ${executionTime4} milliseconds`);
 
-  const x_mont_coords = u8s_to_bigints(
-    subtask_sum_data[0],
-    num_words,
-    word_size,
-  );
-  const y_mont_coords = u8s_to_bigints(
-    subtask_sum_data[1],
-    num_words,
-    word_size,
-  );
-  const t_mont_coords = u8s_to_bigints(
-    subtask_sum_data[2],
-    num_words,
-    word_size,
-  );
-  const z_mont_coords = u8s_to_bigints(
-    subtask_sum_data[3],
-    num_words,
-    word_size,
-  );
+  // // Perform round of copying
+  // const os = num_subtasks * num_words * 4;
+  // commandEncoder.copyBufferToBuffer(out_x_sb, 0, subtask_sum_x_sb, 0, os);
+  // commandEncoder.copyBufferToBuffer(out_y_sb, 0, subtask_sum_y_sb, 0, os);
+  // commandEncoder.copyBufferToBuffer(out_t_sb, 0, subtask_sum_t_sb, 0, os);
+  // commandEncoder.copyBufferToBuffer(out_z_sb, 0, subtask_sum_z_sb, 0, os);
 
-  // Convert each point out of Montgomery form by multiplying by the inverse
-  // of the Montgomery radix
-  const points: ExtPointType[] = [];
-  for (let i = 0; i < num_subtasks; i++) {
-    const pt = fieldMath.createPoint(
-      fieldMath.Fp.mul(x_mont_coords[i], rinv),
-      fieldMath.Fp.mul(y_mont_coords[i], rinv),
-      fieldMath.Fp.mul(t_mont_coords[i], rinv),
-      fieldMath.Fp.mul(z_mont_coords[i], rinv),
-    );
-    points.push(pt);
-  }
+  // // Read the subtask sums from the GPU
+  // const subtask_sum_data = await read_from_gpu(device, commandEncoder, [
+  //   subtask_sum_x_sb,
+  //   subtask_sum_y_sb,
+  //   subtask_sum_t_sb,
+  //   subtask_sum_z_sb,
+  // ]);
 
-  // Calculate the final result (Formula 3 of the cuZK paper, also known as
-  // Horner's rule)
-  const m = BigInt(2) ** BigInt(chunk_size);
-  // The last scalar chunk is the most significant digit (base m)
-  let result = points[points.length - 1];
-  for (let i = points.length - 2; i >= 0; i--) {
-    result = result.multiply(m);
-    result = result.add(points[i]);
-  }
+  // // Destroy the GPU device object
+  // device.destroy();
 
-  if (log_result) {
-    console.log(result.toAffine());
-  }
+  // const x_mont_coords = u8s_to_bigints(
+  //   subtask_sum_data[0],
+  //   num_words,
+  //   word_size,
+  // );
+  // const y_mont_coords = u8s_to_bigints(
+  //   subtask_sum_data[1],
+  //   num_words,
+  //   word_size,
+  // );
+  // const t_mont_coords = u8s_to_bigints(
+  //   subtask_sum_data[2],
+  //   num_words,
+  //   word_size,
+  // );
+  // const z_mont_coords = u8s_to_bigints(
+  //   subtask_sum_data[3],
+  //   num_words,
+  //   word_size,
+  // );
 
-  return result.toAffine();
-  // return { x: BigInt(0), y: BigInt(1) }
+  // // Convert each point out of Montgomery form by multiplying by the inverse
+  // // of the Montgomery radix
+  // const points: ExtPointType[] = [];
+  // for (let i = 0; i < num_subtasks; i++) {
+  //   const pt = fieldMath.createPoint(
+  //     fieldMath.Fp.mul(x_mont_coords[i], rinv),
+  //     fieldMath.Fp.mul(y_mont_coords[i], rinv),
+  //     fieldMath.Fp.mul(t_mont_coords[i], rinv),
+  //     fieldMath.Fp.mul(z_mont_coords[i], rinv),
+  //   );
+  //   points.push(pt);
+  // }
+
+  // // Calculate the final result (Formula 3 of the cuZK paper, also known as
+  // // Horner's rule)
+  // const m = BigInt(2) ** BigInt(chunk_size);
+  // // The last scalar chunk is the most significant digit (base m)
+  // let result = points[points.length - 1];
+  // for (let i = points.length - 2; i >= 0; i--) {
+  //   result = result.multiply(m);
+  //   result = result.add(points[i]);
+  // }
+
+  // if (log_result) {
+  //   console.log(result.toAffine());
+  // }
+
+  // return result.toAffine();
+  return { x: BigInt(0), y: BigInt(1) }
 };
 
 /*
@@ -375,7 +429,7 @@ export const convert_point_coords_and_decompose_shaders = async (
   num_x_workgroups: number,
   num_y_workgroups: number,
   device: GPUDevice,
-  commandEncoder: GPUCommandEncoder,
+  // commandEncoder: GPUCommandEncoder,
   baseAffinePoints: BigIntPoint[],
   num_words: number,
   word_size: number,
@@ -395,6 +449,8 @@ export const convert_point_coords_and_decompose_shaders = async (
     x_coords[i] = baseAffinePoints[i].x;
     y_coords[i] = baseAffinePoints[i].y;
   }
+
+  const commandEncoder = device.createCommandEncoder();
 
   // Convert points to bytes (performs ~2x faster than
   // `bigints_to_16_bit_words_for_gpu`)
@@ -452,6 +508,10 @@ export const convert_point_coords_and_decompose_shaders = async (
     num_y_workgroups,
     1,
   );
+
+  // Finish encoding commands and submit to GPU device command queue
+  device.queue.submit([commandEncoder.finish()]);
+  await device.queue.onSubmittedWorkDone();
 
   // Debug the output of the shader. This should **not** be run in
   // production.
@@ -512,7 +572,7 @@ export const convert_point_coords_and_decompose_shaders = async (
 export const transpose_gpu = async (
   shaderCode: string,
   device: GPUDevice,
-  commandEncoder: GPUCommandEncoder,
+  // commandEncoder: GPUCommandEncoder,
   input_size: number,
   num_columns: number,
   num_rows: number,
@@ -541,6 +601,8 @@ export const transpose_gpu = async (
    *   - csc_row_idx (nnz)
    *      - The cumulative sum of the number of nonzero elements per row
    */
+
+  const commandEncoder = device.createCommandEncoder();
 
   const all_csc_col_ptr_sb = create_sb(
     device,
@@ -591,6 +653,10 @@ export const transpose_gpu = async (
     1,
   );
 
+  // Finish encoding commands and submit to GPU device command queue
+  device.queue.submit([commandEncoder.finish()]);
+  await device.queue.onSubmittedWorkDone();
+
   // Debug the output of the shader. This should **not** be run in
   // production.
   if (debug) {
@@ -639,7 +705,7 @@ export const smvp_gpu = async (
   num_y_workgroups: number,
   num_z_workgroups: number,
   device: GPUDevice,
-  commandEncoder: GPUCommandEncoder,
+  // commandEncoder: GPUCommandEncoder,
   num_subtasks: number,
   num_csr_cols: number,
   input_size: number,
@@ -654,6 +720,8 @@ export const smvp_gpu = async (
   bucket_sum_z_sb: GPUBuffer,
   debug = false,
 ) => {
+  const commandEncoder = device.createCommandEncoder();
+
   const params_bytes = numbers_to_u8s_for_gpu([
     input_size,
     num_y_workgroups,
@@ -700,6 +768,10 @@ export const smvp_gpu = async (
     num_y_workgroups,
     num_z_workgroups,
   );
+
+  // Finish encoding commands and submit to GPU device command queue
+  device.queue.submit([commandEncoder.finish()]);
+  await device.queue.onSubmittedWorkDone();
 
   // Debug the output of the shader. This should **not** be run in
   // production.
@@ -978,3 +1050,84 @@ export const bucket_aggregation = async (
     out_z_sb,
   };
 };
+
+export const bucket_aggregation_modified = async (
+  shaderCode: string,
+  device: GPUDevice,
+  commandEncoder: GPUCommandEncoder,
+  out_x_sb: GPUBuffer,
+  out_y_sb: GPUBuffer,
+  out_t_sb: GPUBuffer,
+  out_z_sb: GPUBuffer,
+  bucket_sum_x_sb: GPUBuffer,
+  bucket_sum_y_sb: GPUBuffer,
+  bucket_sum_t_sb: GPUBuffer,
+  bucket_sum_z_sb: GPUBuffer,
+  num_columns: number,
+  num_subtasks: number,
+  debug = false,
+) => {
+  const params = compute_misc_params(p, word_size);
+  const num_words = params.num_words;
+
+  const num_z_workgroups = 1;
+  const compute_ideal_num_workgroups = (num_points: number) => {
+    const m = Math.log2(num_points);
+    const n = Math.ceil(m / 2);
+
+    const num_x_workgroups = 2 ** n;
+    const num_y_workgroups = Math.ceil(
+      num_points / num_x_workgroups / num_subtasks,
+    );
+
+    return { num_x_workgroups, num_y_workgroups, num_z_workgroups };
+  };
+
+  const { num_x_workgroups, num_y_workgroups } =
+    compute_ideal_num_workgroups(65536); // 
+
+  const params_bytes = numbers_to_u8s_for_gpu([
+    num_y_workgroups,
+    num_z_workgroups,
+  ]);
+  const params_ub = create_and_write_ub(device, params_bytes);
+
+  const bindGroupLayout = create_bind_group_layout(device, [
+    "read-only-storage",
+    "read-only-storage",
+    "read-only-storage",
+    "read-only-storage",
+    "storage",
+    "storage",
+    "storage",
+    "storage",
+    "uniform",
+  ]);
+  const bindGroup = create_bind_group(device, bindGroupLayout, [
+    bucket_sum_x_sb,
+    bucket_sum_y_sb,
+    bucket_sum_t_sb,
+    bucket_sum_z_sb,
+    out_x_sb,
+    out_y_sb,
+    out_t_sb,
+    out_z_sb,
+    params_ub,
+  ]);
+
+  const computePipeline = await create_compute_pipeline(
+    device,
+    [bindGroupLayout],
+    shaderCode,
+    "main",
+  );
+
+  execute_pipeline(
+    commandEncoder,
+    computePipeline,
+    bindGroup,
+    num_x_workgroups,
+    num_y_workgroups,
+    num_z_workgroups,
+  );  
+}
