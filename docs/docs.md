@@ -1,0 +1,428 @@
+# Documentation for our ZPrize Category 2 submission
+
+By [Tal Derei](https://github.com/TalDerei/) and [Koh Wei Jie](https://github.com/weijiekoh/)
+
+This document describes our implementation of in-browser multi-scalar multiplication (MSM) for [Prize #2](https://github.com/demox-labs/webgpu-msm) of the [2023 ZPrize competition](https://www.zprize.io/). Our code uses [WebGPU](https://developer.mozilla.org/en-US/docs/Web/API/WebGPU_API) extensively. WebGPU is a relatively new browser API which allows developers to leverage users' GPUs to accelerate heavy computational tasks via parallelism. We hope that our work can contribute to client-side proving libraries such as [webgpu-crypto](https://github.com/demox-labs/webgpu-crypto), so as to speed up client-side proof generation particularly for privacy-centric use cases.
+
+Our work is heavily inspired by the cuZK paper ([Lu et al, 2022](https://eprint.iacr.org/2022/1321.pdf)), as well as techniques employed by competitors in the 2022 iteration of ZPrize. We also explored other techniques that no other prior teams had employed, and chose only those which performed the most efficiently. We strove to cite all third-party sources and will update this documentation to credit any that we missed.
+### Performance
+
+#### Twisted Edwards BLS12
+
+##### Apple Macbook (M3)
+
+TODO
+
+##### Apple Macbook (M1)
+
+TODO
+
+##### Lenovo Thinkpad P53s (Nvidia Quadro P520)
+
+TODO
+
+##### Lenovo Thinkpad P16 (Nvidia A1000)
+
+TODO
+
+#### BLS12-377
+
+##### Apple Macbook (M3)
+
+TODO
+
+##### Apple Macbook (M1)
+
+TODO
+
+##### Lenovo Thinkpad P53s (Nvidia Quadro P520)
+
+TODO
+
+##### Lenovo Thinkpad P16 (Nvidia A1000)
+
+TODO
+## The elliptic curve
+
+We completed submissions for both the BLS12-377 elliptic curve and the Edwards BLS12 extended twisted Edwards curve.
+
+### BLS12-377 curve
+
+The base field of the [BLS12-377](https://developer.aleo.org/advanced/the_aleo_curves/bls12-377/) curve is:
+
+```
+258664426012969094010652733694893533536393512754914660539884262666720468348340822774968888139573360124440321458177
+```
+
+and its scalar field is:
+
+```
+8444461749428370424248824938781546531375899335154063827935233455917409239041
+```
+
+### Edwards BLS12 curve
+
+For our implementation using the [Edwards BLS12](https://developer.aleo.org/advanced/the_aleo_curves/overview) extended Twisted Edwards curve, the modulus of the scalar field is `8444461749428370424248824938781546531375899335154063827935233455917409239041`. Please note that although this is the base field of the Edwards BLS12 curve, the test harness code uses it as the scalar field order, and our submission produces results that match the provided test cases and reference implementations.
+
+## Approach
+
+<img src ="./end-to-end.png" />
+
+The objective of the MSM procedure is to compute the linear combination of an array of $n$ elliptic curve points and scalars:
+
+$Q = \sum^n_{i=1}{k_iP_i}$
+
+$n$ falls between $2^{16}$ and $2^{20}$, inclusive.
+
+Our approach is very similar to the Pippenger method, and we assume that the reader is familiar how it works. To recap, the Pippenger method has four main stages:
+
+1. **Scalar decomposition**, where each scalar is split into $s$-bit windows.
+2. **Bucket accumulation**, where points which correspond to the same scalar chunk are placed into a so-called bucket, and all the points in each bucket are independently aggregated.
+3. **Bucket reduction**, where each bucket is multiplied by its bucket index, and the buckets are summed. 
+4. **Result aggregation**, where each bucket sum is multiplied by $2^s$ raised to the appropriate power (using Horner's method). 
+
+The main difference between our method and the Pippenger method is that we use sparse matrix transposition, a sparse matrix vector product algorithm, and a parallel running-sum bucket reduction algorithm.
+
+There are several stages to our procedure, the vast majority of which runs inside the GPU. This is to avoid relatively costly data transfers in and out of the GPU device. The only time data is written to the GPU is when it is absolutely necessary:
+
+- At the start of the process, where the points and scalars are written to GPU buffers.
+- Several times during the bucket aggregation step, where a small amount of metadata (the number of points per iteration) is written to control the recursive procedure.
+
+Likewise, the only time that data is read from the GPU is at the end of the process, when the bucket sums are read.
+
+### The WebGPU programming model
+
+GPUs execute code in a fundamentally parallel fashion. There are three main concepts to understand before reading the rest of this document: shaders, workgroups, and buffers.
+
+A *GPU shader* is responsible for each stage of our process. A shader is basically code that runs in the GPU, and the way that it operates on data in parallel is orchestrated via the WebGPU API. Shaders are defined in the [WebGPU Shader Language (WGSL)](https://www.w3.org/TR/WGSL/) and at the time of writing, it is the only available language. The browser compiles WGSL code into the GPU shader language corresponding to the underlying platform, such as MSL on Metal or SPIR-V for Vulkan.
+
+Besides WGSL, there is no other way to write GPU instructions in WebGPU, unlike other platforms.
+
+To control parallelism, the programmer specifies the workgroup size and the number of workgroups to dispatch per shader invocation. Essentailly, the number of threads is the product of the workgroup size and the number of workgroups dispatched. Each thread executes an instance of a shader, and the shader logic determines which pieces of data are read, manipulated, and stored. The workgroup size is static, but the number of workgroups is dynamic.
+
+Data is stored in *buffers*, which can be read by and written to by the CPU. Buffers can also be read by and written to by different invocations of the same shader or different shaders. During execution, buffers can be accessed by any thread in any workgroup, and there since WebGPU provides no guarantees on order of access, race conditions are possible and must be avoided.
+
+It is also important to note that WebGPU terminology differs somewhat from that of other GPU programming frameworks and platforms, such as CUDA or Metal, which use terms like *warps* or *kernels* to refer to workgroups and shaders. WebGPU also differs in its capabilities; there are certain types of operations which can be done in CUDA but not in WebGPU, such as dynamic workgroup sizes.
+
+Readers may refer to [*WebGPU — All of the cores, none of the canvas*](https://surma.dev/things/webgpu/) for a more in-depth exploration of WebGPU concepts.
+
+### Scalar decomposition and point coordinate conversion
+
+First, we decompose the scalars into $s$-bit chunks (also known as windows) and use the [signed bucket index method](https://hackmd.io/@drouyang/signed-bucket-index) (which various ZPrize 2022 contestants also employed) to halve the number of buckets.
+
+Furthermore, we store the point coordinates in 13-bit limbs and in [Montgomery form](https://en.wikipedia.org/wiki/Montgomery_modular_multiplication) so as to speed up field multiplications. This technique is described by Gregor Mitscha-Baude in his [ZPrize 2022 submission](https://github.com/z-prize/2022-entries/tree/main/open-division/prize4-msm-wasm/mitschabaude#13-x-30-bit-multiplication) (and [his WASM library for Montgomery multiplication](https://github.com/mitschabaude/montgomery#13-x-30-bit-multiplication)), and we elaborate on how we adapted it to the WebGPU context in a section below.
+
+We perform this step in parallel using the `convert_point_coords_and_decompose_scalars.template.wgsl` shader.
+
+The input storage buffers are:
+
+- `x_coords: array<u32>`
+- `y_coords: array<u32>`
+- `scalars: array<u32>`
+
+The output storage buffers are:
+- `point_x: array<BigInt>`
+- `point_y: array<BigInt>`
+- `chunks: array<u32>`
+
+The shader performs the following steps:
+
+1. Convert a set of point coordinates into 13-bit multiprecision big integers (`BigInt` structs, each of which consists of 20 limbs), multiply each `BigInt` by the Montgomery radix `r` using big-integer multiplication and Barrett reduction, and store the results in the output buffers.
+2. Decompose a scalar into signed scalar indices. Each signed index is represented by a `u32` value, which is negative if it is less than $2^{s-1}$, and store the results in an output buffer. (More information about the signed bucket index technique will be presented below.)
+
+### Sparse matrix transposition
+
+The next step is to compute the indices of the points which share the same scalar chunks, so that the points may be accumulated into buckets in parallel.
+
+This step is from the cuZK paper, where it is dubbed sparse matrix transposition. Our implementation is slightly different, however. While the original cuZK approach stores the points in ELL sparse matrices before converting them into CSR (compressed sparse row) matrices (p10 - 11), we skip the ELL step altogether, and directly generate the CSR matrices. Specifically, our transposition takes the scalar chunks per subtask as the `col_idx` array, step assumes that the `row_ptr` array is simply:
+
+$$[0, r, 2r, \dots, m]$$
+
+where $m = 2^s$ and $r = \frac{n}{2^s}$. If $s = 16$ and $n = 2^{16}$, then `row_ptr` is `[0, 65536]`.
+
+Following the transposition algorithm, we generate the `all_csc_col_ptr` and `all_csc_val_idxs` arrays.
+
+#### An example
+
+Let the scalar chunks for one subtask be:
+
+`[2, 3, 3, 5]`
+
+and the points be:
+
+`[P0, P1, P2, P3]`.
+
+The expected bucket sum for this subtask should be:
+
+`2P0 + 3(P1 + P2) + 5P3`
+
+We treat the scalar chunks as the `col_idx` array of a CSR matrix. The `row_ptr` array is set to:
+
+`[0, 4]`
+
+In dense form, the matrix looks like:
+
+```
+x  x  P0  P1,P2  x  P3  x  x
+```
+
+Note that we have P1 and P2 in the same cell, which is technically not in line with how sparse matrices are constructed, but doing so does not affect the correctness of our result.
+
+The result of transposition should yield a matrix whose dense form looks like:
+
+```
+x
+x
+P0
+P1,P2
+x
+P3
+x
+x
+```
+
+In CSR form:
+
+`row_ptr`: `[0, 0, 0, 1, 3, 3, 4, 4, 4]`
+`val_idxs`: `[0, 1, 2, 3]`
+
+We ignore the `col_idx` array of the transposed array.
+
+### Sparse matrix vector product and scalar multiplication
+
+The transposition step allow us to perform bucket accumulation in parallel. Observe that the original scalar chunk values have been *positionally encoded* in the indices of elements of `row_ptr` whose consecutive element differs. For instance, `P0` is at index `2`, which is its corresponding scalar chunk.
+
+Crucially, there are no data dependencies across iterations, so each thread can handle a pair of `row_ptr` elements and look up the required point data from a storage buffer.
+
+For instance, when we iterate over `row_ptr` two elements at a time and encounter `row_ptr[2] = 0` and `row_ptr[3] = 1`, the loop index should be `2`, and when we look up the point index in `val_idxes[2]`, we know to add `P0` to bucket `2`.
+
+In full:
+
+```
+i = 0; start = 0, end = 0
+i = 1; start = 0, end = 0
+i = 2; start = 0, end = 1
+    Add points[val_idxs[0]] to bucket 2
+i = 3; start = 1, end = 3
+    Add points[val_idxs[1]] to bucket 3
+    Add points[val_idxs[2]] to bucket 3
+i = 4; start = 3, end = 3
+i = 5; start = 3, end = 4
+    Add points[val_idxs[3]] to bucket 5
+i = 6; start = 4, end = 4
+i = 7; start = 4, end = 4
+i = 8; start = 4, end = 4
+```
+
+Note that our implementation uses signed bucket indices, so the actual procedure differs, but the iteration over `row_ptr` works in the same way.
+
+### Bucket reduction
+
+Now that we have the aggregated buckets per subtask, we need to compute the bucket reduction:
+
+$$\sum_{2^{s - 1}}^{l=1}l{B}_l$$
+
+We follow the `pBucketPointsReduction` algorithm from the cuZK paper (Algorithm 4, p13) that splits the buckets into multiple threads, computes a running sum of the points per thread, and multiplies each running sum by a required amount. 
+
+Here is an illustration of how it works for an example list of 8 buckets:
+
+```js
+B7 +
+B7 + B6 +
+B7 + B6 + B5 + 
+B7 + B6 + B5 + B4 +
+B7 + B6 + B5 + B4 + B3 +
+B7 + B6 + B5 + B4 + B3 + B2 +
+B7 + B6 + B5 + B4 + B3 + B2 + B1 +
+B7 + B6 + B5 + B4 + B3 + B2 + B1 + B0 =
+/*
+t0      | t1      | t2      | t3
+*/
+// Thread 0 computes:
+B7 +
+B7 + B6 +
+(B7 + B6) * 6
+// Thread 1 computes:
+B5 +
+B5 + B4 +
+(B5 + B4) * 4
+// Thread 2 computes:
+B3 +
+B3 + B2 +
+(B3 + B2) * 2
+// Thread 3 computes:
+B1 +
+B1 + B0
+```
+
+The output points are then read from the GPU and summed in the CPU. This is extremely fast (double-digit milliseconds) as the number of points to sum (the number of subtasks multiplied by the number of threads) is relatively small.
+
+### Result aggregation
+
+The final stage of our MSM procedure is to use Horner's method. As described in page 8 of the cuZK paper, the final result $Q$ is computed as such:
+
+$Q = \sum_{j=1}^{\lceil\frac{\lambda}{s}\rceil} 2^{(j-1)s} G_j$
+
+To compute the result, we read each subtask sum from GPU memory, and perform the computation in the CPU. Our benchmarks show that doing this in the CPU is faster than in the GPU because the number of points is low (only $\lceil\frac{\lambda}{s}\rceil$ points), and the time taken for WebGPU or the GPU to compile a shader that performs this computation is far longer than the time taken to read the points and calculate the result. As described below, this is because compilation times for shaders that contain the `add_points()` WGSL function are relatively high due to the complexity of the point addition function, which in turn calls the Montgomery multiplication function many times.
+
+## Optimisation techniques
+
+### Montgomery multiplication
+
+We implemented Montgomery multiplication for point coordinates to obtain a significant speedup in shader runtime. We adapted Gregor Mitscha-Baude's approach as described in [this writeup](https://github.com/mitschabaude/montgomery#13-x-30-bit-multiplication), specifically by benchmarking the performance of Montgomery multiplication using limb sizes that ranged from 12 to 16, inclusive.
+
+Since WGSL shaders are limited to `u32` integers, and have no 64-bit data types to support limb sizes above 16 and up to 32, we had to redo Mitscha-Baude's calculations to determine the number of loop iterations that can be done without a carry (also referred to as carry-free terms, or $k$). Our results, labelled with the same notation that Mitscha-Baude used, are as such:
+
+| Limb size | Number of limbs | $N$ | Max terms to be added | $k$ | `nSafe` |
+|-|-|-|-|-|-|
+| 12 | 22 | 264 | 44 | 257 | 128 |
+| 13 | 20 | 260 | 40 | 65 | 32 |
+| 14 | 19 | 266 | 38 | 17 | 8 |
+| 15 | 17 | 255 | 34 | 5 | 2 |
+| 16 | 16 | 256 | 32 | 2 | 1 |
+
+The so-called sweet spot for limb sizes if one is limited to `u32` integer types is that which has `nSafe` less than the maximum number terms per iteration, and whose algorithm is simplest.
+
+For limb sizes 12 to 15, the Montgomery multiplication algorithm we use is the same as the one that Mitscha-Baude describes in the abovementioned writeup (and contains checks on the loop counter modulo `nSafe`). For limb sizes 12 and 13, unused conditional branches are omitted (the "optmised" algorithm), while the algorithm for limb sizes 14 and 15, include the conditionals as they are necessary (the "modified" algorithm). For the sake of completeness, we also implemented a benchmark for Montgomery multiplication for limb sizes of 16 using the Coarsely Integrated Operand Scanning (CIOS) method.
+
+Our benchmarks (in `src/submission/mont_mul_benchmarks.ts`) performed a series of Montgomery multiplications ($(ar)^{65536} * (br)$) involving two field elements in Montgomery form and a high cost parameter meant to magnify the shader runtime so that the average difference in performance across runs would be obvious.
+
+The results from a Linux laptop with a Nvidia RTX A1000 GPU are:
+
+| Limb size | Algorithm | Average time taken (ms) |
+|-|-|-|
+| 12 | "optimised" | 53 |
+| 13 | "optimised" | 47 |
+| 14 | "modified" | 43 |
+| 15 | "modified" | 35 |
+| 16 | CIOS | 64 |
+
+The results from an Apple M1 MacBook, however, were different:
+
+**TODO: @TalDerei's benchmarks**
+**TODO: link to the source code**
+
+| Limb size | Algorithm | Average time taken (ms) |
+|-|-|-|
+| 12 | "optimised" |  |
+| 13 | "optimised" |  |
+| 14 | "modified" |  |
+| 15 | "modified" |  |
+| 16 | CIOS |  |
+
+The source code for these benchmarks is in `src/submission/miscellaneous/mont_mul_benchmarks.ts`.
+
+### Barrett reduction
+
+In order to convert point coordinates to Montgomery form, we have to multiply each coordinate with the Montgomery radix $r$, modulo the field order. To achieve this, we explored two approaches:
+
+- ["Vanilla" Barrett reduction](https://github.com/sampritipanda/msm-webgpu/blob/main/field.wgsl#L92)
+- [Barrett-Domb reduction](https://github.com/ingonyama-zk/modular_multiplication)
+
+Our implementation of vanilla Barrett reduction is based on code written by [Sampriti Panda, et al](https://github.com/sampritipanda/msm-webgpu/blob/main/field.wgsl#L92) and we compute the constants specific to the  the algorithm described by [Project Nayuki](https://www.nayuki.io/page/barrett-reduction-algorithm). Our WGSL and Typescript implementations of Barrett-Domb reduction can be found here at `src/submission/wgsl/barrett_domb.template.wgsl`, and are directly based on the reference implementation by [Ingonyama](https://github.com/ingonyama-zk/modular_multiplication).
+
+In our benchmarks, we found that vanilla Barrett reduction was faster than Barrett-Domb reduction but we have not yet determined why this is the case.
+
+The source code for the Barrett-Domb benchmarks is in `src/submission/miscellaneous/barrett_domb.ts` and the source code for the "vanilla" Barrett benchmarks is in `src/submission/miscellaneous/barrett_mul_benchmarks.ts`
+
+### Signed bucket indices
+
+This technique was used by previous ZPrize contestants and described in [drouyang.eth's writeup here](https://hackmd.io/@drouyang/signed-bucket-index). To adapt it to our implementation, we had to modify the scalar decomposition and bucket aggregation stages of our process.
+
+In the scalar decomposition stage, our shader converts the scalar chunks into signed scalar indices (see `decompose_scalars_signed()` in `src/submission/utils.ts`) to see the algorithm in Typescript `src/submission/wgsl/convert_point_coords_and_decompose_scalars.template.wgsl` for the same algorithm in WGSL. Unlike the original algorithm, however, we add $2^{s-1}$ to each signed index so that they can be stored as unsigned integers while retaining the information about their sign. We do so as the transposition algorithm will not work correctly with negative `all_csr_col_idx` values.
+
+Furthermore, we do not need to handle the case where the final carry equals 1 (as described in drouyang's writeup), as the highest word of the field modulus (`0x12ab`) is smaller than $2^{16-1}$.
+
+In the bucket aggregation (SMVP) stage, which involves a separate shader, we subtract $2^{s-1}$ from each signed index, and negate the sum of points to be added to the corresponding bucket if the index is negative, before adding it to the bucket.
+
+#### Example
+
+For example, if we have 2 scalars: `[255, 301]`, and the window size is 5, and the number of words per scalar is 2, the scalar decomposition will be:
+
+```
+[[15, 29], [24, 25]]
+```
+
+To reconstruct the original scalars, we first subtract $2^{5 -1}$ from each scalar:
+
+```
+[[-1, 13], [8, 9]]
+```
+
+We then treat each $i$th element as the coefficient of a polynomial $f(x)$ and evaluate it at $2^5$:
+
+$-1x^0 + 8x = -1 + 8(32) = 255$
+$13x^0 + 9x = 13 + 9(32) = 301$
+
+### Elliptic curve point addition and doubling
+
+We explored two ways to perform scalar multiplication: the double-and-add method and Booth encoding.
+
+The double-and-add method is the most straightforward, and is also what the test harness uses in [`Curve.ts`](https://github.com/demox-labs/webgpu-msm/blob/main/src/reference/webgpu/wgsl/Curve.ts#L161).
+
+We discovered the Booth encoding method from discussions in the [privacy-scaling-explorations/halo2curves](https://github.com/privacy-scaling-explorations/halo2curves/pull/106) repository. Booth encoding converts a scalar to a signed encoding which reduces the number of point additions required in a scalar multiplication algorithm, assuming that negation is computationally trivial. For instance, the following the scalar `7` in binary is `0111`, so `7P = P + 2P + 4P` (3 doublings and 3 additions). With Booth encoding, however, we convert `0111` to `100 -1`, and get `7P = 8P -1P` (3 doublings, 1 addition, and 1 cheap negation).
+
+Our implementation of the Booth encoding method, however, performed slightly slower on random scalars than simple double-and-add, although it did perform faster than double-and-add on scalars with high Hamming weight, as expected.
+
+Since the competition rules state that random scalars will be used, we opted to use the double-and-add method .
+
+### Memory management
+
+We ran into a problem where the [maximum storage buffer binding size limit](https://developer.mozilla.org/en-US/docs/Web/API/GPUSupportedLimits) in WebGPU, which is 134217728 by default, was insufficient for storing the coordinates of $2^{20}$ points in a single storage buffer.
+
+```
+Limbs per coordinate: 20
+Bytes per limb: 4
+Bytes per coordinate: 80
+Bytes needed for 2 ** 20 X and Y coordinates:
+160 * 2 ** 20 = 167772160
+```
+
+The solution is to store each coordinate in a separate buffer:
+
+```
+Bytes needed for 2 ** 20 X coordinates:
+80 * 2 ** 20 = 83886080
+```
+
+Another limitation of the WebGPU API is that there is a default limit of 8 storage buffers per shader (`maxStorageBuffersPerShaderStage`). We had to carefully design our end-to-end process to ensure that we did not exceed this limit.
+
+1. In the `convert_point_coords_and_decompose_scalars` shader, we only handled the X and Y point coordinates, as well as the scalars, rather than all four X, Y, T, and Z coordinates and the scalars. Since the computation of the T and Z coordinates is trivial, we made that the task of the SMVP shader instead. This allowed us to have 6 storage buffers instead of 10.
+2. In the `bucket_points_reduction` shader, all 8 storage buffers contain the input and output point coordinates, so we use a uniform buffer to pass in runtime parameters. Using a uniform buffer instead of hardcoding the parameters in the shader code has the additional benefit of avoiding costly shader recompilation.
+
+Do note that for our implementation using the BLS12-377 curve, we use projective coordinates, so we only use 3: the X, Y, and Z coordinates.
+
+### Workgroup and thread allocation
+
+Another factor in runtime performance is the number of threads that are dispatched to execute a shader. Dispatching more workgroups than necessary, however, incurs some overhead.
+A previous version of our work used multiple calls to a bucket reduction shader that uses a tree-summation method to sum the buckets per subtask (though we subsequently replaced that shader with a parallel running-sum method). We found that our implementation was dispatching far too many threads per bucket reduction shader, and optimising our code to dispatch only the necessary number of threads saved us hundreds of milliseconds to multiple seconds of runtime, depending on the input size.
+
+This phenomenon, however, is not consistent across platforms. We noticed that reducing the number of X, Y, and Z workgroups dispatched by maximising the workgroup size per dispatch led to a slight increase in performance (200 - 300ms for the entire MSM) on a Linux machine with an Nvidia GPU, but there was no discernible performance difference on an Apple M1 Macbook.
+
+## Techniques we explored but did not use
+
+### Workload balancing
+
+Our implementation performs best on uniformly distributed scalars as this results in an even distribution of computational load per thread during the bucket aggregation stage. If the scalars are nonuniformly distributed, some scalar chunks will appear more frequently than others, causing some threads to have to add more points to their respective buckets. Since the runtime of the bucket aggregation stage is determined by the slowest thread, the benefits of parallelism will lost on such inputs.
+
+We did not implement any means to solve this issue as the prize architects stated that the inputs would be uniformly distributed. If our work is to be integrated with a ZK prover for a protocol such as Groth16, however, we must expect nonuniformly distributed scalars, and modifications must be made to evenly distribute the work across threads. Our work differs from the cuZK paper in this regard, as the latter describes extra steps (namely, the construction of ELL sparse matrices before converting them to CSR sparse matrices) to address this load imbalance (p12). Ultimately, skipping this step allows our implementation to be more performant than one which is truer to the cuZK approach, but only for uniformly distributed scalars.
+
+## Ideas and improvements
+
+We expect the WebGPU API to evolve over the coming years, and we hope to see its improvements benefit client-side cryptography. Areas which have not yet been explored include:
+
+- Multi-device proof generation, where multiple WebGPU instances across separate device work together via peer-to-peer networking to share a workload.
+- New low-level features, such as storing big integer limbs in [16-bit floating-point](https://www.w3.org/TR/webgpu/#shader-f16) variables.
+
+We also hope to see more lower-level abstractions over the features of the underlying GPU device, such as the ability to set workgroup sizes dynamically (which is possible in CUDA), or lower-level language features such as a kind of assembly language for WGSL.
+
+Our implementation of multi-scalar multiplication can be improved by:
+
+- Supporting nonuniformly distributed scalars, as the cuZK paper does.
+- Supporting other curves.
+- Exploring the use of the GLV endomorphism to speed up curve arithmetic.
+- Refactoring the implementation into a library that works in both the command line (such as via [wgpu](https://github.com/gfx-rs/wgpu)) and in the browser.
+
+## Conclusion
+
+We are grateful to the authors of the cuZK paper, last year's ZPrize participants, and other authors whose work we referenced. We hope that the outcome of this year's ZPrize can continue to drive innovation forward in the industry.
