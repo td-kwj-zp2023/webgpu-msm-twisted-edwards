@@ -82,6 +82,9 @@ export const compute_msm = async (
   log_result = true,
   force_recompile = false,
 ): Promise<{ x: bigint; y: bigint }> => {
+  // Start timer
+  const startTime = performance.now(); // Record start time
+
   const input_size = baseAffinePoints.length;
   const chunk_size = input_size >= 65536 ? 16 : 4;
 
@@ -361,6 +364,12 @@ export const compute_msm = async (
   if (log_result) {
     console.log(result.toAffine());
   }
+
+  // End timer
+  const endTime = performance.now()
+  const executionTime = endTime - startTime;
+  console.log(`full end-to-end execution time: ${executionTime} milliseconds`);
+
   return result.toAffine();
   //return { x: BigInt(0), y: BigInt(1) }
 };
@@ -414,6 +423,9 @@ export const convert_point_coords_and_decompose_shaders = async (
     y_coords[i] = baseAffinePoints[i].y;
   }
 
+  // Start timer
+  const startTime = performance.now(); // Record start time
+  
   // Convert points to bytes (performs ~2x faster than
   // `bigints_to_16_bit_words_for_gpu`)
   const x_coords_bytes = bigints_to_u8_for_gpu(x_coords, 16, 16);
@@ -421,6 +433,11 @@ export const convert_point_coords_and_decompose_shaders = async (
 
   // Convert scalars to bytes
   const scalars_bytes = bigints_to_u8_for_gpu(scalars, 16, 16);
+
+  // End timer
+  const endTime = performance.now()
+  const executionTime = endTime - startTime;
+  console.log(`conversion execution time: ${executionTime} milliseconds`);
 
   // Input buffers
   const x_coords_sb = create_and_write_sb(device, x_coords_bytes);
