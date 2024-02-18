@@ -65,6 +65,7 @@ pub fn decompose_scalars(
     num_words: usize,
     word_size: usize,
 ) -> Result {
+    /*
     let scalars_array = Array::from(&scalars);
     let bigints: Vec<BigInt> = scalars_array.iter().map(|x| BigInt::new(&x).unwrap()).collect();
 
@@ -93,6 +94,8 @@ pub fn decompose_scalars(
             result.push(r[i][j]);
         }
     }
+    */
+    let mut result: Vec<u16> = Vec::with_capacity(0);
     Result {
         result
     }

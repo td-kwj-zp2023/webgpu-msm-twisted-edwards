@@ -19,6 +19,7 @@ export const decompose_scalars_ts_benchmark = async (
     const p = BigInt('0x12ab655e9a2ca55660b44d1e5c37b00159aa76fed00000010a11800000000001')
     console.log('Decomposing', scalars.length, 'scalars')
 
+  /*
     console.log('Typescript benchmarks:')
     for (let word_size = 8; word_size < 17; word_size ++) {
         const params = compute_misc_params(p, word_size)
@@ -30,9 +31,10 @@ export const decompose_scalars_ts_benchmark = async (
         console.log(`decompose_scalars() with ${word_size}-bit windows took ${elapsed}ms`)
     }
     console.log()
+  */
 
     console.log('WASM benchmarks:')
-    for (let word_size = 8; word_size < 17; word_size ++) {
+    for (let word_size = 16; word_size < 17; word_size ++) {
         const params = compute_misc_params(p, word_size)
         const num_words = params.num_words
 
@@ -43,6 +45,7 @@ export const decompose_scalars_ts_benchmark = async (
     }
     console.log()
 
+  /*
     const num_words = 20
     const word_size = 13
     const ts_r = decompose_scalars(scalars, num_words, word_size).flat()
@@ -56,6 +59,7 @@ export const decompose_scalars_ts_benchmark = async (
         const num_words = params.num_words
         await decompose_scalars_gpu(scalars, num_words, word_size)
     }
+    */
 
     return { x: BigInt(0), y: BigInt(0) }
 }
