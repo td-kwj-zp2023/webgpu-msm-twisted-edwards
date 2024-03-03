@@ -11,7 +11,7 @@ import bigint_funcs from "../wgsl/bigint/bigint_13.template.wgsl";
 import field_funcs from "../wgsl/field/field.template.wgsl";
 import ec_funcs from "../wgsl/curve/ec.template.wgsl";
 import barrett_funcs from "../wgsl/cuzk/barrett.template.wgsl";
-import montgomery_product_funcs from "../wgsl/montgomery/mont_pro_product.template.wgsl";
+import montgomery_product_funcs from "../wgsl/montgomery/mont_pro_product_13.template.wgsl";
 import transpose_serial_shader from "../wgsl/cuzk/transpose.wgsl";
 import smvp_shader from "../wgsl/cuzk/smvp.template.wgsl";
 import bpr_shader from '../wgsl/cuzk/bpr.template.wgsl'
