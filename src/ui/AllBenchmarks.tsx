@@ -11,7 +11,6 @@ import { PowersTestCase, TestCase, loadTestCase } from '../test-data/testCases';
     //create_csr_precomputation_benchmark,
     //create_csr_sparse_matrices_from_points_benchmark,
 //} from '../submission/miscellaneous/cuzk/create_csr_gpu'
-//import { full_benchmarks } from '../submission/miscellaneous/full_benchmarks'
 //import { scalar_mul_benchmarks } from '../submission/miscellaneous/scalar_mul_benchmarks'
 //import { smtvp_wgsl } from '../submission/miscellaneous/cuzk/smtvp_wgsl';
 //import { cuzk_typescript_serial } from '../submission/miscellaneous/cuzk/cuzk_serial'

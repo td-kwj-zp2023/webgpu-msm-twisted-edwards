@@ -7,7 +7,7 @@ import mustache from "mustache";
 import convert_point_coords_and_decompose_scalars from "../wgsl/cuzk/convert_point_coords_and_decompose_scalars.template.wgsl";
 import extract_word_from_bytes_le_funcs from "../wgsl/cuzk/extract_word_from_bytes_le.template.wgsl";
 import structs from "../wgsl/struct/structs.template.wgsl";
-import bigint_funcs from "../wgsl/bigint/bigint.template.wgsl";
+import bigint_funcs from "../wgsl/bigint/bigint_13.template.wgsl";
 import field_funcs from "../wgsl/field/field.template.wgsl";
 import ec_funcs from "../wgsl/curve/ec.template.wgsl";
 import barrett_funcs from "../wgsl/cuzk/barrett.template.wgsl";
