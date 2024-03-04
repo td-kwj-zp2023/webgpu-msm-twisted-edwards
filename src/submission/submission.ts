@@ -14,6 +14,7 @@
  */
 
 import assert from "assert";
+import { readBigIntsFromBufferLE } from '../reference/webgpu/utils';
 import { BigIntPoint, U32ArrayPoint } from "../reference/types";
 import { ExtPointType } from "@noble/curves/abstract/edwards";
 import { ShaderManager } from "./implementation/cuzk/shader_manager";
@@ -32,15 +33,17 @@ import {
   u8s_to_bigints,
   u8s_to_numbers,
   u8s_to_numbers_32,
-  bigints_to_u8_for_gpu,
+  from_words_le,
   numbers_to_u8s_for_gpu,
   compute_misc_params,
   decompose_scalars_signed,
-  are_point_arr_equal,
 } from "./implementation/cuzk/utils";
 import { cpu_transpose } from "./implementation/cuzk/transpose";
 import { cpu_smvp_signed } from "./implementation/cuzk/smvp";
-import { shader_invocation } from "./implementation/cuzk/bucket_points_reduction";
+import {
+  parallel_bucket_reduction_1,
+  parallel_bucket_reduction_2,
+} from './implementation/cuzk/bpr'
 
 const p = BigInt(
   "8444461749428370424248824938781546531375899335154063827935233455917409239041",
@@ -69,19 +72,19 @@ const fieldMath = new FieldMath();
  *    - Signed bucket indices
  * 3. Careful memory management to stay within WebGPU's default buffer size
  *    limits.
- * 4. A recursive bucket aggregation shader (a tree-summation method).
- * 5. Perform the final computation of the MSM result from the subtask results
+ * 4. Perform the final computation of the MSM result from the subtask results
  *    (Horner's rule) in the CPU instead of the GPU, as the number of points is
  *    small, and the time taken to compile a shader to perform this computation
  *    is greater than the time it takes for the CPU to do so.
  */
 export const compute_msm = async (
-  baseAffinePoints: BigIntPoint[] | U32ArrayPoint[],
-  scalars: bigint[] | Uint32Array[],
+  bufferPoints: BigIntPoint[] | U32ArrayPoint[] | Buffer,
+  bufferScalars: bigint[] | Uint32Array[] | Buffer,
   log_result = true,
   force_recompile = false,
 ): Promise<{ x: bigint; y: bigint }> => {
-  const input_size = baseAffinePoints.length;
+  const input_size = bufferScalars.length / 32;
+
   const chunk_size = input_size >= 65536 ? 16 : 4;
 
   const shaderManager = new ShaderManager(
@@ -155,45 +158,25 @@ export const compute_msm = async (
       c_num_y_workgroups,
       device,
       commandEncoder,
-      baseAffinePoints as BigIntPoint[],
+      bufferPoints as Buffer,
       num_words,
       word_size,
-      scalars as bigint[],
+      bufferScalars as Buffer,
       num_subtasks,
       num_columns,
       chunk_size,
+      //true,
     );
-
-  // Buffers to contain the sum of all the bucket sums per subtask
-  const subtask_sum_coord_bytelength = num_subtasks * num_words * 4;
-  const subtask_sum_x_sb = create_sb(device, subtask_sum_coord_bytelength);
-  const subtask_sum_y_sb = create_sb(device, subtask_sum_coord_bytelength);
-  const subtask_sum_t_sb = create_sb(device, subtask_sum_coord_bytelength);
-  const subtask_sum_z_sb = create_sb(device, subtask_sum_coord_bytelength);
+  //device.destroy(); return { x: BigInt(0), y: BigInt(1) }
 
   // Buffers to  store the SMVP result (the bucket sum). They are overwritten
   // per iteration
   const bucket_sum_coord_bytelength =
-    (num_columns / 2 + 1) * num_words * 4 * num_subtasks;
+    (num_columns / 2) * num_words * 4 * num_subtasks;
   const bucket_sum_x_sb = create_sb(device, bucket_sum_coord_bytelength);
   const bucket_sum_y_sb = create_sb(device, bucket_sum_coord_bytelength);
   const bucket_sum_t_sb = create_sb(device, bucket_sum_coord_bytelength);
   const bucket_sum_z_sb = create_sb(device, bucket_sum_coord_bytelength);
-
-  // Used by the parallel tree summation method in bucket_points_reduction
-  //
-  // Storage analyis:
-  //      bucket_sum_coord_bytelength size: 41,944,320 bytes (41,944,320 / 80 = 524,304 bytes per coordinates required output buffer size)
-  //      Max buffer size is: 268,435,456 bytes
-  //      Max binding size: 134,217,728 bytes
-  //      Required buffer size per coordinate: bucket_sum_coord_bytelength / 2 == 20,972,160 bytes per coordinate < 134,217,728 bytes
-  //      Representing 2^16 points = 4 coordinates * 20,972,160 bytes per coordinate (equaling 20,972,160 / 80 / 4 = 2^15 curve points) = 83,888,640 bytes (~83 MB)
-  //
-  //      This means we can do the bucket aggregation in a single step for < 2^20 points.
-  const out_x_sb = create_sb(device, bucket_sum_coord_bytelength / 2);
-  const out_y_sb = create_sb(device, bucket_sum_coord_bytelength / 2);
-  const out_t_sb = create_sb(device, bucket_sum_coord_bytelength / 2);
-  const out_z_sb = create_sb(device, bucket_sum_coord_bytelength / 2);
 
   const t_shader = shaderManager.gen_transpose_shader(num_subtasks);
 
@@ -233,111 +216,144 @@ export const compute_msm = async (
 
   // This is a dynamic variable that determines the number
   // of CSR matrices processed per invocation of the shader. 
-  const num_subtask_chunk_size = num_subtasks / 2;
+  // TODO: find a safe default
+  const num_subtask_chunk_size = 1
 
   const smvp_shader = shaderManager.gen_smvp_shader(
     s_workgroup_size,
     num_columns,
   );
 
+  // SMVP and multiplication by the bucket index
+  //const offset_debug = 0
+  //const should_debug = true
   for (let offset = 0; offset < num_subtasks; offset += num_subtask_chunk_size) {
-    // SMVP and multiplication by the bucket index
     await smvp_gpu(
-        smvp_shader,
-        s_num_x_workgroups / (num_subtasks / num_subtask_chunk_size),
-        s_num_y_workgroups,
-        s_num_z_workgroups,
-        offset,
-        device,
-        commandEncoder,
-        num_subtasks,
-        num_columns,
-        input_size,
-        chunk_size,
-        all_csc_col_ptr_sb,
-        point_x_sb,
-        point_y_sb,
-        all_csc_val_idxs_sb,
-        bucket_sum_x_sb,
-        bucket_sum_y_sb,
-        bucket_sum_t_sb,
-        bucket_sum_z_sb,
+      smvp_shader,
+      s_num_x_workgroups / (num_subtasks / num_subtask_chunk_size),
+      s_num_y_workgroups,
+      s_num_z_workgroups,
+      offset,
+      num_subtask_chunk_size,
+      device,
+      commandEncoder,
+      num_subtasks,
+      num_columns,
+      input_size,
+      chunk_size,
+      all_csc_col_ptr_sb,
+      point_x_sb,
+      point_y_sb,
+      all_csc_val_idxs_sb,
+      bucket_sum_x_sb,
+      bucket_sum_y_sb,
+      bucket_sum_t_sb,
+      bucket_sum_z_sb,
+      //should_debug && offset === offset_debug,
     )
-}
+    //if (should_debug && offset === offset_debug) { device.destroy(); return { x: BigInt(0), y: BigInt(1) } }
+  }
 
-  const bucket_reduction_shader = shaderManager.gen_bucket_reduction_shader();
+  // There will be 2 ** 16 buckets
+  const b_num_x_workgroups = 1
+  const b_workgroup_size = 256
+  const b_num_threads = b_num_x_workgroups * b_workgroup_size
 
-  // Bucket aggregation
-  await bucket_aggregation(
-    bucket_reduction_shader,
-    device,
-    commandEncoder,
-    out_x_sb,
-    out_y_sb,
-    out_t_sb,
-    out_z_sb,
-    bucket_sum_x_sb,
-    bucket_sum_y_sb,
-    bucket_sum_t_sb,
-    bucket_sum_z_sb,
-    num_columns / 2,
-    num_subtasks,
-  );
+  // Output of the parallel bucket points reduction (BPR) shader
+  const g_points_coord_bytelength = num_subtasks * b_num_threads * num_words * 4;
+  const g_points_x_sb = create_sb(device, g_points_coord_bytelength);
+  const g_points_y_sb = create_sb(device, g_points_coord_bytelength);
+  const g_points_t_sb = create_sb(device, g_points_coord_bytelength);
+  const g_points_z_sb = create_sb(device, g_points_coord_bytelength);
 
-  // Perform round of copying
-  const os = num_subtasks * num_words * 4;
-  commandEncoder.copyBufferToBuffer(out_x_sb, 0, subtask_sum_x_sb, 0, os);
-  commandEncoder.copyBufferToBuffer(out_y_sb, 0, subtask_sum_y_sb, 0, os);
-  commandEncoder.copyBufferToBuffer(out_t_sb, 0, subtask_sum_t_sb, 0, os);
-  commandEncoder.copyBufferToBuffer(out_z_sb, 0, subtask_sum_z_sb, 0, os);
+  const bpr_shader = shaderManager.gen_bpr_shader(b_workgroup_size) 
 
-  // Read the subtask sums from the GPU
-  const subtask_sum_data = await read_from_gpu(device, commandEncoder, [
-    subtask_sum_x_sb,
-    subtask_sum_y_sb,
-    subtask_sum_t_sb,
-    subtask_sum_z_sb,
+  //const b_1_debug = 0
+  for (let subtask_idx = 0; subtask_idx < num_subtasks; subtask_idx ++) {
+    // Bucket points reduction (BPR) - stage 1
+    await bpr_1(
+      bpr_shader,
+      subtask_idx,
+      num_subtasks,
+      b_num_x_workgroups,
+      b_workgroup_size,
+      num_columns,
+      device,
+      commandEncoder,
+      bucket_sum_x_sb,
+      bucket_sum_y_sb,
+      bucket_sum_t_sb,
+      bucket_sum_z_sb,
+      g_points_x_sb,
+      g_points_y_sb,
+      g_points_t_sb,
+      g_points_z_sb,
+      //subtask_idx === b_1_debug,
+    )
+    //if (subtask_idx === b_1_debug) { device.destroy(); return { x: BigInt(0), y: BigInt(1) } }
+  }
+
+  //const b_2_debug = 0
+  for (let subtask_idx = 0; subtask_idx < num_subtasks; subtask_idx ++) {
+    // Bucket points reduction (BPR) - stage 2
+    await bpr_2(
+      bpr_shader,
+      subtask_idx,
+      num_subtasks,
+      b_num_x_workgroups,
+      b_workgroup_size,
+      num_columns,
+      device,
+      commandEncoder,
+      bucket_sum_x_sb,
+      bucket_sum_y_sb,
+      bucket_sum_t_sb,
+      bucket_sum_z_sb,
+      g_points_x_sb,
+      g_points_y_sb,
+      g_points_t_sb,
+      g_points_z_sb,
+      //subtask_idx === b_2_debug,
+    )
+    //if (subtask_idx === b_2_debug) { device.destroy(); return { x: BigInt(0), y: BigInt(1) } }
+  }
+
+  const data = await read_from_gpu(device, commandEncoder, [
+    g_points_x_sb,
+    g_points_y_sb,
+    g_points_t_sb,
+    g_points_z_sb,
   ]);
 
   // Destroy the GPU device object
   device.destroy();
 
-  const x_mont_coords = u8s_to_bigints(
-    subtask_sum_data[0],
-    num_words,
-    word_size,
-  );
-  const y_mont_coords = u8s_to_bigints(
-    subtask_sum_data[1],
-    num_words,
-    word_size,
-  );
-  const t_mont_coords = u8s_to_bigints(
-    subtask_sum_data[2],
-    num_words,
-    word_size,
-  );
-  const z_mont_coords = u8s_to_bigints(
-    subtask_sum_data[3],
-    num_words,
-    word_size,
-  );
+  const g_points_x_mont_coords = u8s_to_bigints(data[0], num_words, word_size);
+  const g_points_y_mont_coords = u8s_to_bigints(data[1], num_words, word_size);
+  const g_points_t_mont_coords = u8s_to_bigints(data[2], num_words, word_size);
+  const g_points_z_mont_coords = u8s_to_bigints(data[3], num_words, word_size);
 
-  // Convert each point out of Montgomery form by multiplying by the inverse
-  // of the Montgomery radix
   const points: ExtPointType[] = [];
-  for (let i = 0; i < num_subtasks; i++) {
-    const pt = fieldMath.createPoint(
-      fieldMath.Fp.mul(x_mont_coords[i], rinv),
-      fieldMath.Fp.mul(y_mont_coords[i], rinv),
-      fieldMath.Fp.mul(t_mont_coords[i], rinv),
-      fieldMath.Fp.mul(z_mont_coords[i], rinv),
-    );
-    points.push(pt);
+
+  // For a small number of points, this is extremely fast in the CPU
+  for (let i = 0; i < num_subtasks; i ++) {
+    let point = fieldMath.customEdwards.ExtendedPoint.ZERO;
+    for (let j = 0; j < b_num_threads; j ++) {
+      const reduced_point = fieldMath.createPoint(
+        fieldMath.Fp.mul(g_points_x_mont_coords[i * b_num_threads + j], rinv),
+        fieldMath.Fp.mul(g_points_y_mont_coords[i * b_num_threads + j], rinv),
+        fieldMath.Fp.mul(g_points_t_mont_coords[i * b_num_threads + j], rinv),
+        fieldMath.Fp.mul(g_points_z_mont_coords[i * b_num_threads + j], rinv),
+      );
+      //if (!reduced_point.equals(zero)) { reduced_point.assertValidity(); }
+      point = point.add(reduced_point);
+      //if (i == 15) { debugger }
+    }
+    points.push(point);
   }
 
-  // Calculate the final result (Formula 3 of the cuZK paper, also known as
-  // Horner's rule)
+  // Calculate the final result using Horner's method (Formula 3 of the cuZK
+  // paper)
   const m = BigInt(2) ** BigInt(chunk_size);
   // The last scalar chunk is the most significant digit (base m)
   let result = points[points.length - 1];
@@ -349,9 +365,8 @@ export const compute_msm = async (
   if (log_result) {
     console.log(result.toAffine());
   }
-
   return result.toAffine();
-  // return { x: BigInt(0), y: BigInt(1) }
+  //return { x: BigInt(0), y: BigInt(1) }
 };
 
 /*
@@ -383,38 +398,21 @@ export const convert_point_coords_and_decompose_shaders = async (
   num_y_workgroups: number,
   device: GPUDevice,
   commandEncoder: GPUCommandEncoder,
-  baseAffinePoints: BigIntPoint[],
+  points_buffer: Buffer,
   num_words: number,
   word_size: number,
-  scalars: bigint[],
+  scalars_buffer: Buffer,
   num_subtasks: number,
   num_columns: number,
   chunk_size: number,
   debug = false,
 ) => {
   assert(num_subtasks * chunk_size === 256);
-  const input_size = baseAffinePoints.length;
-
-  // An affine point only contains X and Y points.
-  const x_coords = Array(input_size).fill(BigInt(0));
-  const y_coords = Array(input_size).fill(BigInt(0));
-  for (let i = 0; i < input_size; i++) {
-    x_coords[i] = baseAffinePoints[i].x;
-    y_coords[i] = baseAffinePoints[i].y;
-  }
-
-  // Convert points to bytes (performs ~2x faster than
-  // `bigints_to_16_bit_words_for_gpu`)
-  const x_coords_bytes = bigints_to_u8_for_gpu(x_coords, 16, 16);
-  const y_coords_bytes = bigints_to_u8_for_gpu(y_coords, 16, 16);
-
-  // Convert scalars to bytes
-  const scalars_bytes = bigints_to_u8_for_gpu(scalars, 16, 16);
+  const input_size = scalars_buffer.length / 32
 
   // Input buffers
-  const x_coords_sb = create_and_write_sb(device, x_coords_bytes);
-  const y_coords_sb = create_and_write_sb(device, y_coords_bytes);
-  const scalars_sb = create_and_write_sb(device, scalars_bytes);
+  const points_sb = create_and_write_sb(device, points_buffer);
+  const scalars_sb = create_and_write_sb(device, scalars_buffer);
 
   // Output buffers
   const point_x_sb = create_sb(device, input_size * num_words * 4);
@@ -428,15 +426,13 @@ export const convert_point_coords_and_decompose_shaders = async (
   const bindGroupLayout = create_bind_group_layout(device, [
     "read-only-storage",
     "read-only-storage",
-    "read-only-storage",
     "storage",
     "storage",
     "storage",
     "uniform",
   ]);
   const bindGroup = create_bind_group(device, bindGroupLayout, [
-    x_coords_sb,
-    y_coords_sb,
+    points_sb,
     scalars_sb,
     point_x_sb,
     point_y_sb,
@@ -473,9 +469,19 @@ export const convert_point_coords_and_decompose_shaders = async (
     const computed_x_coords = u8s_to_bigints(data[0], num_words, word_size);
     const computed_y_coords = u8s_to_bigints(data[1], num_words, word_size);
 
+    const x_coords: bigint[] = []
+    const y_coords: bigint[] = []
+
+    for (let i = 0; i < input_size; i ++) {
+      const x_slice = points_buffer.subarray(i * 64, i * 64 + 32);
+      x_coords.push(from_words_le(new Uint16Array(x_slice), 32, 8));
+      const y_slice = points_buffer.subarray(i * 64 + 32, i * 64 + 64);
+      y_coords.push(from_words_le(new Uint16Array(y_slice), 32, 8));
+    }
+
     for (let i = 0; i < input_size; i++) {
-      const expected_x = (baseAffinePoints[i].x * r) % p;
-      const expected_y = (baseAffinePoints[i].y * r) % p;
+      const expected_x = (x_coords[i] * r) % p;
+      const expected_y = (y_coords[i] * r) % p;
 
       if (
         !(
@@ -490,6 +496,8 @@ export const convert_point_coords_and_decompose_shaders = async (
 
     // Verify scalar chunks
     const computed_chunks = u8s_to_numbers(data[2]);
+
+    const scalars = readBigIntsFromBufferLE(scalars_buffer)
 
     const expected = decompose_scalars_signed(
       scalars,
@@ -646,6 +654,7 @@ export const smvp_gpu = async (
   num_y_workgroups: number,
   num_z_workgroups: number,
   offset: number,
+  num_subtask_chunk_size: number,
   device: GPUDevice,
   commandEncoder: GPUCommandEncoder,
   num_subtasks: number,
@@ -748,69 +757,66 @@ export const smvp_gpu = async (
       word_size,
     );
 
-    // Assertion checks take a long time!
-    for (let subtask_idx = 0; subtask_idx < num_subtasks; subtask_idx++) {
-      // Convert GPU output out of Montgomery coordinates
-      const bigIntPointToExtPointType = (bip: BigIntPoint): ExtPointType => {
-        return fieldMath.createPoint(bip.x, bip.y, bip.t, bip.z);
+    // Note: assertion checks take a long time
+
+    // Convert GPU output out of Montgomery coordinates
+    const bigIntPointToExtPointType = (bip: BigIntPoint): ExtPointType => {
+      return fieldMath.createPoint(bip.x, bip.y, bip.t, bip.z);
+    };
+    const output_points_gpu: ExtPointType[] = [];
+    for (
+      let i = offset * (num_csr_cols / 2);
+      i < offset * (num_csr_cols / 2) + num_csr_cols / 2;
+      i++
+    ) {
+      const non = {
+        x: fieldMath.Fp.mul(bucket_sum_x_sb_result[i], rinv),
+        y: fieldMath.Fp.mul(bucket_sum_y_sb_result[i], rinv),
+        t: fieldMath.Fp.mul(bucket_sum_t_sb_result[i], rinv),
+        z: fieldMath.Fp.mul(bucket_sum_z_sb_result[i], rinv),
       };
-      const output_points_gpu: ExtPointType[] = [];
-      for (
-        let i = subtask_idx * (num_csr_cols / 2);
-        i < subtask_idx * (num_csr_cols / 2) + num_csr_cols / 2;
-        i++
-      ) {
-        const non = {
-          x: fieldMath.Fp.mul(bucket_sum_x_sb_result[i], rinv),
-          y: fieldMath.Fp.mul(bucket_sum_y_sb_result[i], rinv),
-          t: fieldMath.Fp.mul(bucket_sum_t_sb_result[i], rinv),
-          z: fieldMath.Fp.mul(bucket_sum_z_sb_result[i], rinv),
-        };
-        output_points_gpu.push(bigIntPointToExtPointType(non));
-      }
+      output_points_gpu.push(bigIntPointToExtPointType(non));
+    }
 
-      // Convert CPU output out of Montgomery coordinates
-      const output_points_cpu_out_of_mont: ExtPointType[] = [];
-      for (let i = 0; i < input_size; i++) {
-        const x = fieldMath.Fp.mul(point_x_sb_result[i], rinv);
-        const y = fieldMath.Fp.mul(point_y_sb_result[i], rinv);
-        const t = fieldMath.Fp.mul(x, y);
-        const pt = fieldMath.createPoint(x, y, t, BigInt(1));
-        pt.assertValidity();
-        output_points_cpu_out_of_mont.push(pt);
-      }
+    const zero = fieldMath.customEdwards.ExtendedPoint.ZERO;
 
-      // Calculate SMVP in CPU
-      const output_points_cpu: ExtPointType[] = cpu_smvp_signed(
-        subtask_idx,
-        input_size,
-        num_csr_cols,
-        chunk_size,
-        all_csc_col_ptr_sb_result,
-        all_csc_val_idxs_result,
-        output_points_cpu_out_of_mont,
-        fieldMath,
+    const input_points: ExtPointType[] = [];
+    for (let i = 0; i < input_size; i++) {
+      const x = fieldMath.Fp.mul(point_x_sb_result[i], rinv);
+      const y = fieldMath.Fp.mul(point_y_sb_result[i], rinv);
+      const t = fieldMath.Fp.mul(x, y);
+      const pt = fieldMath.createPoint(x, y, t, BigInt(1));
+      if (!pt.equals(zero)) { pt.assertValidity(); }
+      input_points.push(pt);
+    }
+
+    // Calculate SMVP in CPU
+    const output_points_cpu: ExtPointType[] = cpu_smvp_signed(
+      offset,
+      input_size,
+      num_csr_cols,
+      chunk_size,
+      all_csc_col_ptr_sb_result,
+      all_csc_val_idxs_result,
+      input_points,
+      fieldMath,
+    );
+
+    // Transform results into affine representation
+    const output_points_affine_cpu = output_points_cpu.map((x) =>
+      x.toAffine(),
+    );
+    const output_points_affine_gpu = output_points_gpu.map((x) =>
+      x.toAffine(),
+    );
+
+    // Assert CPU and GPU output
+    for (let i = 0; i < output_points_affine_gpu.length; i++) {
+      assert(
+        output_points_affine_gpu[i].x === output_points_affine_cpu[i].x &&
+        output_points_affine_gpu[i].y === output_points_affine_cpu[i].y,
+        `failed at offset ${offset}, i = ${i}`,
       );
-
-      // Transform results into affine representation
-      const output_points_affine_cpu = output_points_cpu.map((x) =>
-        x.toAffine(),
-      );
-      const output_points_affine_gpu = output_points_gpu.map((x) =>
-        x.toAffine(),
-      );
-
-      // Assert CPU and GPU output
-      for (let i = 0; i < output_points_affine_gpu.length; i++) {
-        assert(
-          output_points_affine_gpu[i].x === output_points_affine_cpu[i].x,
-          "failed at i: " + i.toString(),
-        );
-        assert(
-          output_points_affine_gpu[i].y === output_points_affine_cpu[i].y,
-          "failed at i: " + i.toString(),
-        );
-      }
     }
   }
 
@@ -822,29 +828,25 @@ export const smvp_gpu = async (
   };
 };
 
-/*
- * Add up all the buckets (which have already been multiplied by their bucket
- * indices) using a recursive tree-summation method.
- */
-export const bucket_aggregation = async (
+const bpr_1 = async (
   shaderCode: string,
+  subtask_idx: number,
+  num_subtasks: number,
+  num_x_workgroups: number,
+  workgroup_size: number,
+  num_columns: number,
   device: GPUDevice,
   commandEncoder: GPUCommandEncoder,
-  out_x_sb: GPUBuffer,
-  out_y_sb: GPUBuffer,
-  out_t_sb: GPUBuffer,
-  out_z_sb: GPUBuffer,
   bucket_sum_x_sb: GPUBuffer,
   bucket_sum_y_sb: GPUBuffer,
   bucket_sum_t_sb: GPUBuffer,
   bucket_sum_z_sb: GPUBuffer,
-  num_columns: number,
-  num_subtasks: number,
+  g_points_x_sb: GPUBuffer,
+  g_points_y_sb: GPUBuffer,
+  g_points_t_sb: GPUBuffer,
+  g_points_z_sb: GPUBuffer,
   debug = false,
 ) => {
-  const params = compute_misc_params(p, word_size);
-  const num_words = params.num_words;
-
   let original_bucket_sum_x_sb;
   let original_bucket_sum_y_sb;
   let original_bucket_sum_t_sb;
@@ -888,34 +890,58 @@ export const bucket_aggregation = async (
     );
   }
 
-  let s = num_columns;
-  while (s > 1) {
-    await shader_invocation(
-      device,
-      commandEncoder,
-      shaderCode,
-      bucket_sum_x_sb,
-      bucket_sum_y_sb,
-      bucket_sum_t_sb,
-      bucket_sum_z_sb,
-      out_x_sb,
-      out_y_sb,
-      out_t_sb,
-      out_z_sb,
-      s,
-      num_words,
-      num_subtasks,
-    );
+  // Parameters as a uniform buffer
+  const params_bytes = numbers_to_u8s_for_gpu([
+    subtask_idx,
+    num_columns,
+  ]);
+  const params_ub = create_and_write_ub(device, params_bytes);
 
-    const e = s;
-    s = Math.ceil(s / 2);
-    if (e === 1 && s === 1) {
-      break;
-    }
-  }
+  const bindGroupLayout = create_bind_group_layout(device, [
+    "storage",
+    "storage",
+    "storage",
+    "storage",
+    "storage",
+    "storage",
+    "storage",
+    "storage",
+    "uniform",
+  ]);
 
-  // Debug the output of the shader. This should **not** be run in
-  // production.
+  const bindGroup = create_bind_group(device, bindGroupLayout, [
+    bucket_sum_x_sb,
+    bucket_sum_y_sb,
+    bucket_sum_t_sb,
+    bucket_sum_z_sb,
+    g_points_x_sb,
+    g_points_y_sb,
+    g_points_t_sb,
+    g_points_z_sb,
+    params_ub,
+  ]);
+
+  const computePipeline = await create_compute_pipeline(
+    device,
+    [bindGroupLayout],
+    shaderCode,
+    "main_1",
+  );
+
+  const num_threads = num_x_workgroups * workgroup_size
+  const num_y_workgroups = 1
+  const num_z_workgroups = 1
+  //console.log({ num_threads, num_x_workgroups, workgroup_size })
+
+  execute_pipeline(
+    commandEncoder,
+    computePipeline,
+    bindGroup,
+    num_x_workgroups,
+    num_y_workgroups,
+    num_z_workgroups,
+  );
+
   if (
     debug &&
     original_bucket_sum_x_sb != undefined && // prevent TS warnings
@@ -924,65 +950,220 @@ export const bucket_aggregation = async (
     original_bucket_sum_z_sb != undefined
   ) {
     const data = await read_from_gpu(device, commandEncoder, [
-      out_x_sb,
-      out_y_sb,
-      out_t_sb,
-      out_z_sb,
+      bucket_sum_x_sb,
+      bucket_sum_y_sb,
+      bucket_sum_t_sb,
+      bucket_sum_z_sb,
+      g_points_x_sb,
+      g_points_y_sb,
+      g_points_t_sb,
+      g_points_z_sb,
       original_bucket_sum_x_sb,
       original_bucket_sum_y_sb,
       original_bucket_sum_t_sb,
       original_bucket_sum_z_sb,
-    ]);
+    ])
 
-    const x_mont_coords_result = u8s_to_bigints(data[0], num_words, word_size);
-    const y_mont_coords_result = u8s_to_bigints(data[1], num_words, word_size);
-    const t_mont_coords_result = u8s_to_bigints(data[2], num_words, word_size);
-    const z_mont_coords_result = u8s_to_bigints(data[3], num_words, word_size);
+    // The number of buckets per subtask
+    const n = num_columns / 2
 
-    for (let subtask_idx = 0; subtask_idx < num_subtasks; subtask_idx++) {
-      // Convert the resulting point coordinates out of Montgomery form
-      const result = fieldMath.createPoint(
-        fieldMath.Fp.mul(x_mont_coords_result[subtask_idx], rinv),
-        fieldMath.Fp.mul(y_mont_coords_result[subtask_idx], rinv),
-        fieldMath.Fp.mul(t_mont_coords_result[subtask_idx], rinv),
-        fieldMath.Fp.mul(z_mont_coords_result[subtask_idx], rinv),
+    const start = subtask_idx * n * num_words * 4
+    const end = (subtask_idx * n + n) * num_words * 4
+
+    const m_points_x_mont_coords = u8s_to_bigints(data[0].slice(start, end), num_words, word_size);
+    const m_points_y_mont_coords = u8s_to_bigints(data[1].slice(start, end), num_words, word_size);
+    const m_points_t_mont_coords = u8s_to_bigints(data[2].slice(start, end), num_words, word_size);
+    const m_points_z_mont_coords = u8s_to_bigints(data[3].slice(start, end), num_words, word_size);
+
+    const g_points_x_mont_coords = u8s_to_bigints(data[4], num_words, word_size);
+    const g_points_y_mont_coords = u8s_to_bigints(data[5], num_words, word_size);
+    const g_points_t_mont_coords = u8s_to_bigints(data[6], num_words, word_size);
+    const g_points_z_mont_coords = u8s_to_bigints(data[7], num_words, word_size);
+
+    const original_bucket_sum_x_mont_coords = u8s_to_bigints(data[8].slice(start, end), num_words, word_size);
+    const original_bucket_sum_y_mont_coords = u8s_to_bigints(data[9].slice(start, end), num_words, word_size);
+    const original_bucket_sum_t_mont_coords = u8s_to_bigints(data[10].slice(start, end), num_words, word_size);
+    const original_bucket_sum_z_mont_coords = u8s_to_bigints(data[11].slice(start, end), num_words, word_size);
+
+    const zero = fieldMath.customEdwards.ExtendedPoint.ZERO;
+
+    // Convert the bucket sums out of Montgomery form
+    const original_bucket_sums: ExtPointType[] = []
+    for (let i = 0; i < n; i ++) {
+      const pt = fieldMath.createPoint(
+        fieldMath.Fp.mul(original_bucket_sum_x_mont_coords[i], rinv),
+        fieldMath.Fp.mul(original_bucket_sum_y_mont_coords[i], rinv),
+        fieldMath.Fp.mul(original_bucket_sum_t_mont_coords[i], rinv),
+        fieldMath.Fp.mul(original_bucket_sum_z_mont_coords[i], rinv),
       );
+      if (!pt.equals(zero)) { pt.assertValidity(); }
+      original_bucket_sums.push(pt);
+    }
 
-      // Check that the sum of the points is correct
-      const bucket_x_mont = u8s_to_bigints(data[4], num_words, word_size);
-      const bucket_y_mont = u8s_to_bigints(data[5], num_words, word_size);
-      const bucket_t_mont = u8s_to_bigints(data[6], num_words, word_size);
-      const bucket_z_mont = u8s_to_bigints(data[7], num_words, word_size);
+    const m_points: ExtPointType[] = []
+    for (let i = 0; i < n; i ++) {
+      const pt = fieldMath.createPoint(
+        fieldMath.Fp.mul(m_points_x_mont_coords[i], rinv),
+        fieldMath.Fp.mul(m_points_y_mont_coords[i], rinv),
+        fieldMath.Fp.mul(m_points_t_mont_coords[i], rinv),
+        fieldMath.Fp.mul(m_points_z_mont_coords[i], rinv),
+      );
+      if (!pt.equals(zero)) { pt.assertValidity(); }
+      m_points.push(pt);
+    }
 
-      const points: ExtPointType[] = [];
-      for (
-        let i = subtask_idx * num_columns;
-        i < subtask_idx * num_columns + num_columns;
-        i++
-      ) {
-        points.push(
-          fieldMath.createPoint(
-            fieldMath.Fp.mul(bucket_x_mont[i], rinv),
-            fieldMath.Fp.mul(bucket_y_mont[i], rinv),
-            fieldMath.Fp.mul(bucket_t_mont[i], rinv),
-            fieldMath.Fp.mul(bucket_z_mont[i], rinv),
-          ),
-        );
-      }
+    // Convert the reduced buckets out of Montgomery form
+    const g_points: ExtPointType[] = []
+    for (let i = 0; i < num_threads; i ++) {
+      const idx = subtask_idx * num_threads + i
+      const pt = fieldMath.createPoint(
+        fieldMath.Fp.mul(g_points_x_mont_coords[idx], rinv),
+        fieldMath.Fp.mul(g_points_y_mont_coords[idx], rinv),
+        fieldMath.Fp.mul(g_points_t_mont_coords[idx], rinv),
+        fieldMath.Fp.mul(g_points_z_mont_coords[idx], rinv),
+      );
+      if (!pt.equals(zero)) { pt.assertValidity(); }
+      g_points.push(pt);
+    }
 
-      // Add up the original points
-      let expected = points[0];
-      for (let i = 1; i < points.length; i++) {
-        expected = expected.add(points[i]);
-      }
-      assert(are_point_arr_equal([result], [expected]));
+    const expected = parallel_bucket_reduction_1(original_bucket_sums, num_threads)
+    for (let i = 0; i < expected.g_points.length; i ++) {
+      assert(g_points[i].equals(expected.g_points[i]), `mismatch at ${i}`)
     }
   }
+}
 
-  return {
-    out_x_sb,
-    out_y_sb,
-    out_t_sb,
-    out_z_sb,
-  };
-};
+const bpr_2 = async (
+  shaderCode: string,
+  subtask_idx: number,
+  num_subtasks: number,
+  num_x_workgroups: number,
+  workgroup_size: number,
+  num_columns: number,
+  device: GPUDevice,
+  commandEncoder: GPUCommandEncoder,
+  bucket_sum_x_sb: GPUBuffer,
+  bucket_sum_y_sb: GPUBuffer,
+  bucket_sum_t_sb: GPUBuffer,
+  bucket_sum_z_sb: GPUBuffer,
+  g_points_x_sb: GPUBuffer,
+  g_points_y_sb: GPUBuffer,
+  g_points_t_sb: GPUBuffer,
+  g_points_z_sb: GPUBuffer,
+  debug = false,
+) => {
+  // Parameters as a uniform buffer
+  const params_bytes = numbers_to_u8s_for_gpu([
+    subtask_idx,
+    num_columns,
+  ]);
+  const params_ub = create_and_write_ub(device, params_bytes);
+
+  const bindGroupLayout = create_bind_group_layout(device, [
+    "storage",
+    "storage",
+    "storage",
+    "storage",
+    "storage",
+    "storage",
+    "storage",
+    "storage",
+    "uniform",
+  ]);
+
+  const bindGroup = create_bind_group(device, bindGroupLayout, [
+    bucket_sum_x_sb,
+    bucket_sum_y_sb,
+    bucket_sum_t_sb,
+    bucket_sum_z_sb,
+    g_points_x_sb,
+    g_points_y_sb,
+    g_points_t_sb,
+    g_points_z_sb,
+    params_ub,
+  ]);
+
+  const computePipeline = await create_compute_pipeline(
+    device,
+    [bindGroupLayout],
+    shaderCode,
+    "main_2",
+  );
+
+  const num_threads = num_x_workgroups * workgroup_size
+  const num_y_workgroups = 1
+  const num_z_workgroups = 1
+  //console.log({ num_threads, num_x_workgroups, workgroup_size })
+
+  execute_pipeline(
+    commandEncoder,
+    computePipeline,
+    bindGroup,
+    num_x_workgroups,
+    num_y_workgroups,
+    num_z_workgroups,
+  );
+
+  if (debug) {
+    const data = await read_from_gpu(device, commandEncoder, [
+      bucket_sum_x_sb,
+      bucket_sum_y_sb,
+      bucket_sum_t_sb,
+      bucket_sum_z_sb,
+      g_points_x_sb,
+      g_points_y_sb,
+      g_points_t_sb,
+      g_points_z_sb,
+    ])
+
+    // The number of buckets per subtask
+    const n = num_columns / 2
+
+    const start = subtask_idx * n * num_words * 4
+    const end = (subtask_idx * n + n) * num_words * 4
+
+    const m_points_x_mont_coords = u8s_to_bigints(data[0].slice(start, end), num_words, word_size);
+    const m_points_y_mont_coords = u8s_to_bigints(data[1].slice(start, end), num_words, word_size);
+    const m_points_t_mont_coords = u8s_to_bigints(data[2].slice(start, end), num_words, word_size);
+    const m_points_z_mont_coords = u8s_to_bigints(data[3].slice(start, end), num_words, word_size);
+
+    const g_points_x_mont_coords = u8s_to_bigints(data[4], num_words, word_size);
+    const g_points_y_mont_coords = u8s_to_bigints(data[5], num_words, word_size);
+    const g_points_t_mont_coords = u8s_to_bigints(data[6], num_words, word_size);
+    const g_points_z_mont_coords = u8s_to_bigints(data[7], num_words, word_size);
+
+    const zero = fieldMath.customEdwards.ExtendedPoint.ZERO;
+
+    const m_points: ExtPointType[] = []
+    for (let i = 0; i < n; i ++) {
+      const pt = fieldMath.createPoint(
+        fieldMath.Fp.mul(m_points_x_mont_coords[i], rinv),
+        fieldMath.Fp.mul(m_points_y_mont_coords[i], rinv),
+        fieldMath.Fp.mul(m_points_t_mont_coords[i], rinv),
+        fieldMath.Fp.mul(m_points_z_mont_coords[i], rinv),
+      );
+      if (!pt.equals(zero)) { pt.assertValidity(); }
+      m_points.push(pt);
+    }
+
+    // Convert the reduced buckets out of Montgomery form
+    const g_points: ExtPointType[] = []
+    for (let i = 0; i < num_threads; i ++) {
+      const idx = subtask_idx * num_threads + i
+      const pt = fieldMath.createPoint(
+        fieldMath.Fp.mul(g_points_x_mont_coords[idx], rinv),
+        fieldMath.Fp.mul(g_points_y_mont_coords[idx], rinv),
+        fieldMath.Fp.mul(g_points_t_mont_coords[idx], rinv),
+        fieldMath.Fp.mul(g_points_z_mont_coords[idx], rinv),
+      );
+      if (!pt.equals(zero)) { pt.assertValidity(); }
+      g_points.push(pt);
+    }
+
+    const expected = parallel_bucket_reduction_2(g_points, m_points, n, num_threads)
+    // TODO: figure out why the following fails at index 0
+    for (let i = 0; i < expected.length; i ++) {
+      assert(g_points[i].equals(expected[i]), `mismatch at ${i}`)
+    }
+  }
+}
