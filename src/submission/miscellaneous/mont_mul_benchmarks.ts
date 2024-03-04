@@ -1,5 +1,5 @@
 import mustache from "mustache";
-import { BigIntPoint } from "../../reference/types";
+import { BigIntPoint, U32ArrayPoint } from "../../reference/types";
 import {
   compute_misc_params,
   genRandomFieldElement,
@@ -25,8 +25,8 @@ import mont_pro_cios_shader from "../implementation/wgsl/montgomery/mont_pro_cio
 import montgomery_product_funcs from "../implementation/wgsl/montgomery/mont_pro_product.template.wgsl";
 
 export const mont_mul_benchmarks = async (
-  {}: BigIntPoint[],
-  {}: bigint[],
+  {}: BigIntPoint[] | U32ArrayPoint[] | Buffer,
+  {}: bigint[] | Uint32Array[] | Buffer,
 ): Promise<{ x: bigint; y: bigint }> => {
   // Define and generate params
   const num_inputs = 1;
@@ -157,7 +157,7 @@ export const mont_mul_benchmarks = async (
         expected.push(expensive_computation(a, b, r, cost));
       }
 
-      const input_bytes = bigints_to_u8_for_gpu(inputs, num_words, word_size);
+      const input_bytes = bigints_to_u8_for_gpu(inputs);
 
       const device = await get_device();
 

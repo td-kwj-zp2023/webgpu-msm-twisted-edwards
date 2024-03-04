@@ -1,6 +1,6 @@
 import assert from "assert";
 import mustache from "mustache";
-import { BigIntPoint } from "../../reference/types";
+import { BigIntPoint, U32ArrayPoint } from "../../reference/types";
 import { FieldMath } from "../../reference/utils/FieldMath";
 import {
   get_device,
@@ -8,12 +8,12 @@ import {
   create_sb,
   read_from_gpu,
 } from "../implementation/cuzk/gpu";
-import structs from "./wgsl/struct/structs.template.wgsl";
-import bigint_funcs from "./wgsl/bigint/bigint.template.wgsl";
-import field_funcs from "./wgsl/field/field.template.wgsl";
-import ec_funcs from "./wgsl/curve/ec.template.wgsl";
-import montgomery_product_funcs from "./wgsl/montgomery/mont_pro_product.template.wgsl";
-import bucket_points_reduction_shader from "./wgsl/bucket_points_reduction.template.wgsl";
+import structs from "../implementation/wgsl/struct/structs.template.wgsl";
+import bigint_funcs from "../implementation/wgsl/bigint/bigint.template.wgsl";
+import field_funcs from "../implementation/wgsl/field/field.template.wgsl";
+import ec_funcs from "../implementation/wgsl/curve/ec.template.wgsl";
+import montgomery_product_funcs from "../implementation/wgsl/montgomery/mont_pro_product.template.wgsl";
+import bucket_points_reduction_shader from "../implementation/wgsl/cuzk/bucket_points_reduction.template.wgsl";
 import {
   are_point_arr_equal,
   compute_misc_params,
@@ -26,14 +26,14 @@ import {
 import { shader_invocation } from "../implementation/cuzk/bucket_points_reduction";
 
 export const bucket_points_reduction = async (
-  baseAffinePoints: BigIntPoint[],
-  {}: bigint[],
+  baseAffinePoints: BigIntPoint[] | U32ArrayPoint[] | Buffer,
+  {}: bigint[] | Uint32Array[] | Buffer,
 ): Promise<{ x: bigint; y: bigint }> => {
   for (const i of [2, 4, 8, 16, 32, 64]) {
-    await test_bucket_points_reduction(baseAffinePoints, i);
+    await test_bucket_points_reduction(baseAffinePoints as BigIntPoint[], i);
   }
   const points = baseAffinePoints.slice(0, 2 ** 15);
-  await test_bucket_points_reduction(points, points.length);
+  await test_bucket_points_reduction(points as BigIntPoint[], points.length);
   return { x: BigInt(0), y: BigInt(0) };
 };
 
@@ -43,7 +43,6 @@ export const test_bucket_points_reduction = async (
 ) => {
   assert(baseAffinePoints.length >= input_size);
 
-  const workgroup_size = 32;
   const fieldMath = new FieldMath();
   const p = BigInt(
     "0x12ab655e9a2ca55660b44d1e5c37b00159aa76fed00000010a11800000000001",
@@ -85,10 +84,10 @@ export const test_bucket_points_reduction = async (
   const device = await get_device();
   const commandEncoder = device.createCommandEncoder();
 
-  const x_coords_bytes = bigints_to_u8_for_gpu(x_coords, num_words, word_size);
-  const y_coords_bytes = bigints_to_u8_for_gpu(y_coords, num_words, word_size);
-  const t_coords_bytes = bigints_to_u8_for_gpu(t_coords, num_words, word_size);
-  const z_coords_bytes = bigints_to_u8_for_gpu(z_coords, num_words, word_size);
+  const x_coords_bytes = bigints_to_u8_for_gpu(x_coords);
+  const y_coords_bytes = bigints_to_u8_for_gpu(y_coords);
+  const t_coords_bytes = bigints_to_u8_for_gpu(t_coords);
+  const z_coords_bytes = bigints_to_u8_for_gpu(z_coords);
 
   const x_coords_sb = create_and_write_sb(device, x_coords_bytes);
   const y_coords_sb = create_and_write_sb(device, y_coords_bytes);
@@ -110,7 +109,6 @@ export const test_bucket_points_reduction = async (
       d_limbs,
       mask: BigInt(2) ** BigInt(word_size) - BigInt(1),
       two_pow_word_size: BigInt(2) ** BigInt(word_size),
-      workgroup_size,
     },
     {
       structs,
