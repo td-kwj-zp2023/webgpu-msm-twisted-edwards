@@ -12,16 +12,18 @@ import { PowersTestCase, TestCase, loadTestCase } from '../test-data/testCases';
     //create_csr_sparse_matrices_from_points_benchmark,
 //} from '../submission/miscellaneous/cuzk/create_csr_gpu'
 //import { full_benchmarks } from '../submission/miscellaneous/full_benchmarks'
-//import { scalar_mul_benchmarks } from '../submission/miscellaneous/scalar_mul_benchmarks'
+// import { scalar_mul_benchmarks } from '../submission/miscellaneous/scalar_mul_benchmarks'
 //import { smtvp_wgsl } from '../submission/miscellaneous/cuzk/smtvp_wgsl';
 //import { cuzk_typescript_serial } from '../submission/miscellaneous/cuzk/cuzk_serial'
 //import { transpose_wgsl } from '../submission/miscellaneous/cuzk/transpose_wgsl'
 //import { convert_inputs_into_mont_benchmark } from '../submission/miscellaneous/convert_inputs_into_mont_benchmarks';
 //import { convert_bigints_to_bytes_benchmark } from '../submission/miscellaneous/convert_bigints_to_bytes_benchmark'
-//import { mont_mul_benchmarks } from '../submission/miscellaneous/mont_mul_benchmarks';
+import { mont_mul_benchmarks } from '../submission/miscellaneous/mont_mul_benchmarks';
+// import { mont_mul_fp_benchmarks } from '../submission/miscellaneous/mont_mul_fp_benchmarks';
 //import { barrett_mul_benchmarks } from '../submission/miscellaneous/barrett_mul_benchmarks';
 //import { barrett_domb_mul_benchmarks } from '../submission/miscellaneous/barrett_domb_mul_benchmarks';
-//import { add_points_benchmarks } from '../submission/miscellaneous/add_points_benchmarks';
+import { add_points_benchmarks } from '../submission/miscellaneous/add_points_benchmarks';
+import { add_points_fp_benchmarks } from '../submission/miscellaneous/add_points_benchmarks_fp';
 //import { decompose_scalars_ts_benchmark } from '../submission/miscellaneous/decompose_scalars_benchmark';
 //import { smvp_wgsl } from '../submission/miscellaneous/cuzk/smvp_wgsl';
 //import { data_transfer_cost_benchmarks } from '../submission/miscellaneous/data_transfer_cost_benchmarks'
@@ -220,6 +222,66 @@ export const AllBenchmarks: React.FC = () => {
         postResult={postResult}
         bold={true}
       />
+      <Benchmark
+        name={'Montgomery multiplication benchmarks'}
+        disabled={disabledBenchmark}
+        baseAffinePoints={baseAffineBigIntPoints}
+        scalars={bigIntScalars}
+        expectedResult={expectedResult}
+        msmFunc={mont_mul_benchmarks}
+        postResult={postResult}
+        bold={false}
+      />
+      {/* <Benchmark
+        name={'Scalar multiplication benchmarks'}
+        disabled={disabledBenchmark}
+        baseAffinePoints={baseAffineBigIntPoints}
+        scalars={bigIntScalars}
+        expectedResult={expectedResult}
+        msmFunc={scalar_mul_benchmarks}
+        postResult={postResult}
+        bold={false}
+      /> */}
+      {/* <Benchmark
+        name={'Montgomery multiplication benchmarks'}
+        disabled={disabledBenchmark}
+        baseAffinePoints={baseAffineBigIntPoints}
+        scalars={bigIntScalars}
+        expectedResult={expectedResult}
+        msmFunc={mont_mul_benchmarks}
+        postResult={postResult}
+        bold={false}
+      />
+      <Benchmark
+        name={'Montgomery multiplication floating-point benchmarks'}
+        disabled={disabledBenchmark}
+        baseAffinePoints={baseAffineBigIntPoints}
+        scalars={bigIntScalars}
+        expectedResult={expectedResult}
+        msmFunc={mont_mul_fp_benchmarks}
+        postResult={postResult}
+        bold={false}
+      /> */}
+      <Benchmark
+        name={'Point addition algorithm benchmarks'}
+        disabled={disabledBenchmark}
+        baseAffinePoints={baseAffineBigIntPoints}
+        scalars={bigIntScalars}
+        expectedResult={expectedResult}
+        msmFunc={add_points_benchmarks}
+        postResult={postResult}
+        bold={false}
+      />
+      <Benchmark
+        name={'Point addition floating point algorithm benchmarks'}
+        disabled={disabledBenchmark}
+        baseAffinePoints={baseAffineBigIntPoints}
+        scalars={bigIntScalars}
+        expectedResult={expectedResult}
+        msmFunc={add_points_fp_benchmarks}
+        postResult={postResult}
+        bold={false}
+      />
       {/* <div className="flex items-left">
         <div className={`text-gray-800 w-40 px-2 font-bold'`}>{name}</div> 
           <h1>Miscellaneous benchmarks and tests</h1>
@@ -268,16 +330,6 @@ export const AllBenchmarks: React.FC = () => {
         bold={false}
       />
       <Benchmark
-        name={'Scalar multiplication benchmarks'}
-        disabled={disabledBenchmark}
-        baseAffinePoints={baseAffineBigIntPoints}
-        scalars={bigIntScalars}
-        expectedResult={expectedResult}
-        msmFunc={scalar_mul_benchmarks}
-        postResult={postResult}
-        bold={false}
-      />
-      <Benchmark
         name={'Data transfer cost benchmarks'}
         disabled={disabledBenchmark}
         baseAffinePoints={baseAffineBigIntPoints}
@@ -295,16 +347,6 @@ export const AllBenchmarks: React.FC = () => {
         scalars={bigIntScalars}
         expectedResult={expectedResult}
         msmFunc={decompose_scalars_ts_benchmark}
-        postResult={postResult}
-        bold={false}
-      />
-      <Benchmark
-        name={'Montgomery multiplication benchmarks'}
-        disabled={disabledBenchmark}
-        baseAffinePoints={baseAffineBigIntPoints}
-        scalars={bigIntScalars}
-        expectedResult={expectedResult}
-        msmFunc={mont_mul_benchmarks}
         postResult={postResult}
         bold={false}
       />
@@ -355,16 +397,6 @@ export const AllBenchmarks: React.FC = () => {
         scalars={bigIntScalars}
         expectedResult={expectedResult}
         msmFunc={cuzk_typescript_serial}
-        postResult={postResult}
-        bold={false}
-      />
-      <Benchmark
-        name={'Point addition algorithm benchmarks'}
-        disabled={disabledBenchmark}
-        baseAffinePoints={baseAffineBigIntPoints}
-        scalars={bigIntScalars}
-        expectedResult={expectedResult}
-        msmFunc={add_points_benchmarks}
         postResult={postResult}
         bold={false}
       />

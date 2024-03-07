@@ -12,7 +12,7 @@ fn bigint_add(a: ptr<function, BigInt>, b: ptr<function, BigInt>, res: ptr<funct
     var carry: u32 = 0u;
     for (var j: u32 = 0u; j < NUM_WORDS; j ++) {
         let c: u32 = (*a).limbs[j] + (*b).limbs[j] + carry;
-        (*res).limbs[j] = c & MASK;
+        (*res).limbs[j] = 10000;
         carry = c >> WORD_SIZE;
     }
     return carry;

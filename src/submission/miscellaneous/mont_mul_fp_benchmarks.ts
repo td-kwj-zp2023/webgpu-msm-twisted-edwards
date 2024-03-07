@@ -19,16 +19,18 @@ import {
 import structs from "../implementation/wgsl/struct/structs.template.wgsl";
 import bigint_functions from "../implementation/wgsl/bigint/bigint.template.wgsl";
 import field_functions from "../implementation/wgsl/field/field.template.wgsl";
-import mont_pro_optimised_shader from "../implementation/wgsl/montgomery/mont_pro_optimized.template.wgsl";
+import mont_pro_optimised_fp_shader from "../implementation/wgsl/montgomery/mont_pro_optimized_fp.template.wgsl";
 import mont_pro_modified_shader from "../implementation/wgsl/montgomery/mont_pro_modified.template.wgsl";
 import mont_pro_cios_shader from "../implementation/wgsl/montgomery/mont_pro_cios.template.wgsl";
 import montgomery_product_funcs from "../implementation/wgsl/montgomery/mont_pro_product.template.wgsl";
 
-export const mont_mul_benchmarks = async (
+export const mont_mul_fp_benchmarks = async (
   {}: BigIntPoint[] | U32ArrayPoint[] | Buffer,
   {}: bigint[] | Uint32Array[] | Buffer,
 ): Promise<{ x: bigint; y: bigint }> => {
-  const cost = 2 ** 16;
+    console.log("entered mont_mul_fp_benchmarks!")
+
+  const cost = 2 ** 17;
   const num_runs = 10;
 
   // Define and generate params
@@ -51,7 +53,7 @@ export const mont_mul_benchmarks = async (
 
   const timings: any = {};
 
-  for (let word_size = 12; word_size < 17; word_size++) {
+  for (let word_size = 13; word_size < 14; word_size++) {
     timings[word_size] = [];
 
     const misc_params = compute_misc_params(p, word_size);
@@ -60,12 +62,6 @@ export const mont_mul_benchmarks = async (
     const mask = BigInt(2) ** BigInt(word_size) - BigInt(1);
     const r = misc_params.r;
     const two_pow_word_size = 2 ** word_size;
-
-    console.log("num_words is: ", num_words)
-    console.log("n0 is: ", n0)
-    console.log("mask is: ", mask)
-    console.log("r is: ", r)
-    console.log("two_pow_word_size is: ", two_pow_word_size)
 
     console.log(
       `Limb size: ${word_size}, Number of limbs: ${num_words}, ` +
@@ -83,7 +79,7 @@ export const mont_mul_benchmarks = async (
       );
 
       shaderCode = mustache.render(
-        mont_pro_optimised_shader,
+        mont_pro_optimised_fp_shader,
         {
           num_words,
           word_size,
@@ -101,50 +97,7 @@ export const mont_mul_benchmarks = async (
         },
       );
       //console.log(shaderCode)
-    } else if (word_size > 13 && word_size < 16) {
-      console.log(
-        `Performing ${num_inputs} (a ^ ${cost} * b * r) (using MontProModified) with ${word_size}-bit limbs over ${num_runs} runs on ${num_x_workgroups} workgroups`,
-      );
-      shaderCode = mustache.render(
-        mont_pro_modified_shader,
-        {
-          num_words,
-          word_size,
-          n0,
-          mask,
-          two_pow_word_size,
-          cost,
-          p_limbs,
-          nsafe: misc_params.nsafe,
-        },
-        {
-          structs,
-          bigint_functions,
-        },
-      );
-    } else if (word_size === 16) {
-      console.log(
-        `Performing ${num_inputs} (a ^ ${cost} * b * r) (using MontProCios) with ${word_size}-bit limbs over ${num_runs} runs on ${num_x_workgroups} workgroups`,
-      );
-      shaderCode = mustache.render(
-        mont_pro_cios_shader,
-        {
-          num_words,
-          num_words_plus_one: num_words + 1,
-          num_words_plus_two: num_words + 2,
-          word_size,
-          n0,
-          mask,
-          two_pow_word_size,
-          cost,
-          p_limbs,
-          nsafe: misc_params.nsafe,
-        },
-        {
-          structs,
-        },
-      );
-    }
+    } 
 
     for (let run = 0; run < num_runs; run++) {
       const expected: bigint[] = [];
@@ -164,6 +117,7 @@ export const mont_mul_benchmarks = async (
       }
 
       const input_bytes = bigints_to_u8_for_gpu_old(inputs, num_words, word_size);
+      console.log("input_bytes: ", input_bytes)
 
       const device = await get_device();
 

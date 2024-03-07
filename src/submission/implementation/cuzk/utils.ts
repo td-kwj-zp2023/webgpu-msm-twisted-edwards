@@ -237,6 +237,18 @@ export const u8s_to_numbers_32 = (u8s: Uint8Array): number[] => {
   return result;
 };
 
+export const convertUint32ArraysToFloat32Arrays = (uint32Arrays: Uint32Array[]): Float32Array[] => {
+  return uint32Arrays.map(uint32Array => {
+    const float32Array = new Float32Array(uint32Array.length);
+    for (let i = 0; i < uint32Array.length; i++) {
+      // Direct conversion of each integer to a float
+      float32Array[i] = uint32Array[i];
+      console.log("float32Array[i]: ", float32Array[i])
+    }
+    return float32Array;
+  });
+}
+
 export const bigints_to_u8_for_gpu_old = (
   vals: bigint[],
   num_words: number,
@@ -529,6 +541,48 @@ export const genRandomFieldElement = (p: bigint): bigint => {
   let rand;
   while (true) {
     rand = BigInt("0x" + crypto.randomBytes(32).toString("hex"));
+    if (rand >= min) {
+      break;
+    }
+  }
+
+  return rand % p;
+};
+
+export const genRandomFieldElement_a = (p: bigint): bigint => {
+  // Assume that p is < 32 bytes
+  const lim = BigInt(
+    "0x10000000000000000000000000000000000000000000000000000000000000000",
+  );
+  assert(p < lim);
+  const min = (lim - p) % p;
+  
+  const rand_bytes = Buffer.from([123, 252, 126, 131, 195, 212, 90, 246, 154, 177, 244, 190, 114, 65, 171, 237, 232, 78, 211, 158, 63, 24, 112, 56, 254, 184, 209, 175, 68, 207, 189, 253]);
+
+  let rand;
+  while (true) {
+    rand = BigInt("0x" + rand_bytes.toString("hex"));
+    if (rand >= min) {
+      break;
+    }
+  }
+
+  return rand % p;
+};
+
+export const genRandomFieldElement_b = (p: bigint): bigint => {
+  // Assume that p is < 32 bytes
+  const lim = BigInt(
+    "0x10000000000000000000000000000000000000000000000000000000000000000",
+  );
+  assert(p < lim);
+  const min = (lim - p) % p;
+
+  const rand_bytes = Buffer.from([163, 187, 83, 56, 171, 170, 189, 103, 156, 125, 52, 171, 23, 27, 30, 121, 104, 79, 157, 16, 27, 26, 114, 196, 165, 183, 68, 68, 58, 152, 72, 231]);
+
+  let rand;
+  while (true) {
+    rand = BigInt("0x" + rand_bytes.toString("hex"));
     if (rand >= min) {
       break;
     }
