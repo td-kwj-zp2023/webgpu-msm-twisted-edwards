@@ -37,6 +37,7 @@ import {
   numbers_to_u8s_for_gpu,
   compute_misc_params,
   decompose_scalars_signed,
+  convertUint32ArraysToFloat32Arrays,
 } from "./implementation/cuzk/utils";
 import { cpu_transpose } from "./implementation/cuzk/transpose";
 import { cpu_smvp_signed } from "./implementation/cuzk/smvp";
@@ -93,6 +94,9 @@ export const compute_msm = async (
     input_size,
     force_recompile,
   );
+
+  console.log("buffScalars: ", bufferScalars)
+  convertUint32ArraysToFloat32Arrays(bufferScalars as Uint32Array[])
 
   const num_columns = 2 ** chunk_size;
   const num_rows = Math.ceil(input_size / num_columns);

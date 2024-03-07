@@ -1,8 +1,8 @@
 {{> structs }}
 {{> bigint_funcs }}
-{{> field_funcs }}
-{{> ec_funcs }}
-{{> montgomery_product_funcs }}
+// {{> field_funcs }}
+// {{> ec_funcs }}
+// {{> montgomery_product_funcs }}
 
 @group(0) @binding(0)
 var<storage, read_write> points: array<BigInt>;

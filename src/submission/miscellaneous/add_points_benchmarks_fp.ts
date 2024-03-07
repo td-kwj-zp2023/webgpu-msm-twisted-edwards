@@ -21,11 +21,11 @@ import {
   multipassEntryCreator,
 } from "./entries/multipassEntryCreator";
 
-import structs from "../implementation/wgsl/struct/structs.template.wgsl";
-import bigint_funcs from "../implementation/wgsl/bigint/bigint.template.wgsl";
+import structs from "../implementation/wgsl/struct/structs_fp.template.wgsl";
+import bigint_funcs from "../implementation/wgsl/bigint/bigint_fp.template.wgsl";
 import field_funcs from "../implementation/wgsl/field/field.template.wgsl";
 import ec_funcs from "../implementation/wgsl/curve/ec.template.wgsl";
-import add_points_benchmark_shader from "./wgsl/add_points_benchmark.template.wgsl";
+import add_points_fp_benchmark_shader from "./wgsl/add_points_fp_benchmark.template.wgsl";
 import montgomery_product_funcs from "../implementation/wgsl/montgomery/mont_pro_product.template.wgsl";
 
 const setup_shader_code = (
@@ -37,7 +37,6 @@ const setup_shader_code = (
   n0: bigint,
   cost: number,
 ) => {
-  console.log("word_size is: ", )
   const p_limbs = gen_p_limbs(p, num_words, word_size);
   const d_limbs = gen_d_limbs(d, num_words, word_size);
   const shaderCode = mustache.render(
@@ -55,14 +54,12 @@ const setup_shader_code = (
     {
       structs,
       bigint_funcs,
-      field_funcs,
-      ec_funcs,
-      montgomery_product_funcs,
+    //   field_funcs,
+    //   ec_funcs,
+    //   montgomery_product_funcs,
     },
   );
   //console.log(shaderCode)
-  // console.log("mask is: ", BigInt(2) ** BigInt(word_size) - BigInt(1))
-
   return shaderCode;
 };
 
@@ -80,7 +77,7 @@ const expensive_computation = (
 
   return c;
 };
-export const add_points_benchmarks = async (
+export const add_points_fp_benchmarks = async (
   {}: BigIntPoint[] | U32ArrayPoint[] | Buffer,
   {}: bigint[] | Uint32Array[] | Buffer,
 ): Promise<{ x: bigint; y: bigint }> => {
@@ -107,9 +104,13 @@ export const add_points_benchmarks = async (
   // Note that pt is not the generator of the group. it's just a valid curve point.
   const pt = fieldMath.createPoint(x, y, t, z);
 
+  // Generate two random field elements
+  const field_a = genRandomFieldElement_a(p)
+  const field_b = genRandomFieldElement_b(p)
+
   // Generate two random points by multiplying by random field elements
-  const a = pt.multiply(genRandomFieldElement_a(p));
-  const b = pt.multiply(genRandomFieldElement_b(p));
+  const a = pt.multiply(field_a);
+  const b = pt.multiply(field_b);
 
   // Uncomment to test a == b
   //const a = pt
@@ -154,7 +155,7 @@ export const add_points_benchmarks = async (
   const timings_any_a: any[] = [];
   for (let i = 0; i < num_runs; i++) {
     const r = await do_benchmark(
-      add_points_benchmark_shader,
+        add_points_fp_benchmark_shader,
       a,
       b,
       p,
@@ -288,46 +289,54 @@ const do_benchmark = async (
   );
   const elapsed_gpu = Date.now() - start_gpu;
 
-  const data_as_uint8s = new Uint8Array(data);
+  const data_as_f32 = new Uint8Array(data);
+  console.log("data_as_f32s is: ", data_as_f32)
 
-  console.log("data_as_uint8s is: ", data_as_uint8s)
+  // Create a buffer from the bytes
+    // const bytes = new Uint8Array([0, 0, 128, 63]);
+    // // Interpret the bytes as a 32-bit float
+    // const float32Array = new Float32Array(bytes.buffer);
 
-  // const bigIntPointToExtPointType = (bip: BigIntPoint): ExtPointType => {
-  //   return fieldMath.createPoint(bip.x, bip.y, bip.t, bip.z);
-  // };
+    // console.log("fp: ", float32Array[0]); // This will log `1.0`
 
-  // const output_points = u8s_to_points(data_as_uint8s, num_words, word_size);
+//   const bigIntPointToExtPointType = (bip: BigIntPoint): ExtPointType => {
+//     return fieldMath.createPoint(bip.x, bip.y, bip.t, bip.z);
+//   };
 
-  // // convert output_points out of Montgomery coords
-  // const output_points_non_mont: ExtPointType[] = [];
-  // for (const pt of output_points) {
-  //   const non = {
-  //     x: fieldMath.Fp.mul(pt.x, rinv),
-  //     y: fieldMath.Fp.mul(pt.y, rinv),
-  //     t: fieldMath.Fp.mul(pt.t, rinv),
-  //     z: fieldMath.Fp.mul(pt.z, rinv),
-  //   };
-  //   output_points_non_mont.push(bigIntPointToExtPointType(non));
-  // }
+//   const output_points = u8s_to_points(data_as_uint8s, num_words, word_size);
 
-  // console.log("output_points_non_mont is: ", output_points_non_mont)
+//   console.log("output_points is: ", output_points)
 
-  // // convert output_points_non_mont into affine
-  // const output_points_non_mont_and_affine = output_points_non_mont.map((x) =>
-  //   x.toAffine(),
-  // );
-  // //console.log('result from gpu, in affine:', output_points_non_mont_and_affine[0])
+  // convert output_points out of Montgomery coords
+//   const output_points_non_mont: ExtPointType[] = [];
+//   for (const pt of output_points) {
+//     const non = {
+//       x: fieldMath.Fp.mul(pt.x, rinv),
+//       y: fieldMath.Fp.mul(pt.y, rinv),
+//       t: fieldMath.Fp.mul(pt.t, rinv),
+//       z: fieldMath.Fp.mul(pt.z, rinv),
+//     };
+//     output_points_non_mont.push(bigIntPointToExtPointType(non));
+//   }
 
-  // //console.log(expected_cpu.toAffine())
+//   console.log("output_points_non_mont is: ", output_points_non_mont)
 
-  // assert(
-  //   output_points_non_mont_and_affine[0].x === expected_cpu_affine.x,
-  //   "point mismatch",
-  // );
-  // assert(
-  //   output_points_non_mont_and_affine[0].y === expected_cpu_affine.y,
-  //   "point mismatch",
-  // );
+  // convert output_points_non_mont into affine
+//   const output_points_non_mont_and_affine = output_points_non_mont.map((x) =>
+//     x.toAffine(),
+//   );
+//   console.log('result from gpu, in affine:', output_points_non_mont_and_affine[0])
+
+//   //console.log(expected_cpu.toAffine())
+
+//   assert(
+//     output_points_non_mont_and_affine[0].x === expected_cpu_affine.x,
+//     "point mismatch",
+//   );
+//   assert(
+//     output_points_non_mont_and_affine[0].y === expected_cpu_affine.y,
+//     "point mismatch",
+//   );
 
   return { elapsed_cpu, elapsed_gpu };
 };
