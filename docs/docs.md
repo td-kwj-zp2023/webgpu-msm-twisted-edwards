@@ -5,43 +5,13 @@ By [Tal Derei](https://github.com/TalDerei/) and [Koh Wei Jie](https://github.co
 This document describes our implementation of in-browser multi-scalar multiplication (MSM) for [Prize #2](https://github.com/demox-labs/webgpu-msm) of the [2023 ZPrize competition](https://www.zprize.io/). Our code uses [WebGPU](https://developer.mozilla.org/en-US/docs/Web/API/WebGPU_API) extensively. WebGPU is a relatively new browser API which allows developers to leverage users' GPUs to accelerate heavy computational tasks via parallelism. We hope that our work can contribute to client-side proving libraries such as [webgpu-crypto](https://github.com/demox-labs/webgpu-crypto), so as to speed up client-side proof generation particularly for privacy-centric use cases.
 
 Our work is heavily inspired by the cuZK paper ([Lu et al, 2022](https://eprint.iacr.org/2022/1321.pdf)), as well as techniques employed by competitors in the 2022 iteration of ZPrize. We also explored other techniques that no other prior teams had employed, and chose only those which performed the most efficiently. We strove to cite all third-party sources and will update this documentation to credit any that we missed.
+
+[TOC]
+
 ### Performance
 
-#### Twisted Edwards BLS12
+Please refer to [this spreadsheet](https://docs.google.com/spreadsheets/d/1JR8Rzern0DkXc8oHZWcGlPjxSCfP4n4-ZDrpYihgo8M/edit#gid=0) for benchmarks which we recorded on our own devices.
 
-##### Apple Macbook (M3)
-
-TODO
-
-##### Apple Macbook (M1)
-
-TODO
-
-##### Lenovo Thinkpad P53s (Nvidia Quadro P520)
-
-TODO
-
-##### Lenovo Thinkpad P16 (Nvidia A1000)
-
-TODO
-
-#### BLS12-377
-
-##### Apple Macbook (M3)
-
-TODO
-
-##### Apple Macbook (M1)
-
-TODO
-
-##### Lenovo Thinkpad P53s (Nvidia Quadro P520)
-
-TODO
-
-##### Lenovo Thinkpad P16 (Nvidia A1000)
-
-TODO
 ## The elliptic curve
 
 We completed submissions for both the BLS12-377 elliptic curve and the Edwards BLS12 extended twisted Edwards curve.
@@ -86,9 +56,7 @@ The main difference between our method and the Pippenger method is that we use s
 There are several stages to our procedure, the vast majority of which runs inside the GPU. This is to avoid relatively costly data transfers in and out of the GPU device. The only time data is written to the GPU is when it is absolutely necessary:
 
 - At the start of the process, where the points and scalars are written to GPU buffers.
-- Several times during the bucket aggregation step, where a small amount of metadata (the number of points per iteration) is written to control the recursive procedure.
-
-Likewise, the only time that data is read from the GPU is at the end of the process, when the bucket sums are read.
+- Near the end of the process, to extract a relatively low number of reduced bucket sums so the final result can be computed in the CPU.
 
 ### The WebGPU programming model
 
@@ -188,7 +156,7 @@ In CSR form:
 
 We ignore the `col_idx` array of the transposed array.
 
-### Sparse matrix vector product and scalar multiplication
+### Sparse matrix vector product and scalar multiplication (SMVP)
 
 The transposition step allow us to perform bucket accumulation in parallel. Observe that the original scalar chunk values have been *positionally encoded* in the indices of elements of `row_ptr` whose consecutive element differs. For instance, `P0` is at index `2`, which is its corresponding scalar chunk.
 
@@ -255,6 +223,8 @@ B1 +
 B1 + B0
 ```
 
+Our implementation of `pBucketPointsReduction` had to be split into 2 GPU shaders because a single shader that contained multiple elliptic curve addition calls, as well as a call to a elliptic curve scalar multiplication function, failed to run on Apple M1, M2, and M3 machines. When we split it into 2 shaders, however, it worked on these machines.
+
 The output points are then read from the GPU and summed in the CPU. This is extremely fast (double-digit milliseconds) as the number of points to sum (the number of subtasks multiplied by the number of threads) is relatively small.
 
 ### Result aggregation
@@ -264,6 +234,77 @@ The final stage of our MSM procedure is to use Horner's method. As described in 
 $Q = \sum_{j=1}^{\lceil\frac{\lambda}{s}\rceil} 2^{(j-1)s} G_j$
 
 To compute the result, we read each subtask sum from GPU memory, and perform the computation in the CPU. Our benchmarks show that doing this in the CPU is faster than in the GPU because the number of points is low (only $\lceil\frac{\lambda}{s}\rceil$ points), and the time taken for WebGPU or the GPU to compile a shader that performs this computation is far longer than the time taken to read the points and calculate the result. As described below, this is because compilation times for shaders that contain the `add_points()` WGSL function are relatively high due to the complexity of the point addition function, which in turn calls the Montgomery multiplication function many times.
+
+## Implementation differences
+
+Our implementations for the Edwards BLS12 and BLS12-377 curves were structurally identical, and only differed in the following aspects:
+
+1. Number of limbs per point coordiante
+
+    - Since the Edwards BLS12 base field order set by the competition was 253 bits, we used 20 13-bit limbs for each point coordinate. The BLS12-377 implementation, however, used 30 13-bit limbs as its base field is 377 bits (and the Montgomery multiplication algorithm requires the product of the limb size and number of limbs to be greater than the modulo's bitlength). 
+
+2. The curve addition and doubling algorithms
+
+    - For the Edwards BLS12 implementation, we implemented extended twisted Edwards point addition and doubling algorithms. For BLS12-377, we used projective algorithms instead.
+
+## Memory use
+
+Our implementation accepts input data as `Buffer` objects. These `Buffer`s are directly written to GPU memory (with minimal processing only in the BLS12-377 implementation so as not to exceed WebGPU's default buffer binding size limit).
+
+### Edwards BLS12
+
+#### Inputs from the CPU
+
+The test harness provides the scalars as a `Buffer` of $32n$ bytes, and the points as a `Buffer` of $64n$ bytes.
+
+The X and Y coordinates are laid out in alternating fashion, e.g. `[x[0][0], ..., x[0][31], y[0], ..., y[0][31], x[1][0], ...]`.
+
+#### Scalar decomposition and point coordinate conversion
+
+The decomposed scalar chunks are stored in a storage buffer of $4n\cdot\frac{256}{s}$ bytes, which the GPU reads as $n\cdot\frac{256}{s}$ 32-bit unsigned integers. 
+
+The X and Y coordinates are stored in storage buffers as `u32` arrays. Each coordinate storage buffer contains `20n` 13-bit values. They are each stored in a storage buffer of $4 \cdot 20n$ bytes, which the GPU reads as $20n$ 32-bit unsigned integers. 
+
+#### CSR matrix transposition
+
+The transposition step creates two new storage buffers:
+
+1. `all_csc_col_ptr_sb`, which contains $4 \cdot (\frac{256}{s} \cdot 2^{c} + 1)$ bytes.
+2. `all_csc_val_idxs_sb`, which has the same size as the storage buffer for the scalar chunks from the previous stage.
+
+#### SMVP
+
+Four storage buffers are used for all SMVP runs, one per point coordinate. The size of each storage buffer is $4\cdot\frac{256}{2s} \cdot 20 \cdot \frac{256}{s}$ bytes.
+
+#### Bucket points reduction
+
+Four additional storage buffers are created for the two stages of the `pBucketPointsReduction` shader, one per coordinate. The size of each of these storage buffers is $4\cdot 256 \cdot 20 \cdot \frac{256}{s}$ bytes, assuming that we parallelise this stage by 256 threads.
+
+### BLS12-377
+
+#### Inputs from the CPU
+
+The test harness provides the scalars as a `Buffer` of $48n$ bytes, and the points as a `Buffer` of $96n$ bytes.
+
+The X and Y coordinates are laid out in alternating fashion, e.g. `[x[0][0], ..., x[0][48], y[0], ..., y[0][48], x[1][0], ...]`.
+
+#### Scalar decomposition and point coordinate conversion
+
+The decomposed scalar chunks are stored in a storage buffer of $4n\cdot\frac{256}{s}$ bytes, which the GPU reads as $n\cdot\frac{256}{s}$ 32-bit unsigned integers. 
+
+The X and Y coordinates are stored in storage buffers as `u32` arrays. Each coordinate storage buffer contains `30n` 13-bit values. They are each stored in a storage buffer of $4 \cdot 30n$ bytes, which the GPU reads as $30n$ 32-bit unsigned integers.
+
+#### CSR matrix transposition
+
+Same as the CSR matrix transposition step from the Edwards BLS12 implementation.
+
+#### SMVP
+
+Same as the SMVP step from the Edwards BLS12 implementation.
+
+#### Bucket points reduction
+
+Same as the bucket points reduction step from the Edwards BLS12 implementation.
 
 ## Optimisation techniques
 
@@ -287,7 +328,7 @@ For limb sizes 12 to 15, the Montgomery multiplication algorithm we use is the s
 
 Our benchmarks (in `src/submission/mont_mul_benchmarks.ts`) performed a series of Montgomery multiplications ($(ar)^{65536} * (br)$) involving two field elements in Montgomery form and a high cost parameter meant to magnify the shader runtime so that the average difference in performance across runs would be obvious.
 
-The results from a Linux laptop with a Nvidia RTX A1000 GPU are:
+The results from a Linux laptop with a **Nvidia RTX A1000 GPU**:
 
 | Limb size | Algorithm | Average time taken (ms) |
 |-|-|-|
@@ -297,18 +338,25 @@ The results from a Linux laptop with a Nvidia RTX A1000 GPU are:
 | 15 | "modified" | 35 |
 | 16 | CIOS | 64 |
 
-The results from an Apple M1 MacBook, however, were different:
-
-**TODO: @TalDerei's benchmarks**
-**TODO: link to the source code**
+The results from an **Apple M3 MacBook (2023)**:
 
 | Limb size | Algorithm | Average time taken (ms) |
 |-|-|-|
-| 12 | "optimised" |  |
-| 13 | "optimised" |  |
-| 14 | "modified" |  |
-| 15 | "modified" |  |
-| 16 | CIOS |  |
+| 12 | "optimised" | 101 |
+| 13 | "optimised" | 88 |
+| 14 | "modified" | 104 |
+| 15 | "modified" | 104 |
+| 16 | CIOS | 366 |
+
+The results from an **Apple M1 MacBook (2020)**:
+
+| Limb size | Algorithm | Average time taken (ms) |
+|-|-|-|
+| 12 | "optimised" | 160 |
+| 13 | "optimised" | 129 |
+| 14 | "modified" | 146 |
+| 15 | "modified" | 154 |
+| 16 | CIOS | 645 |
 
 The source code for these benchmarks is in `src/submission/miscellaneous/mont_mul_benchmarks.ts`.
 
@@ -400,6 +448,10 @@ A previous version of our work used multiple calls to a bucket reduction shader 
 This phenomenon, however, is not consistent across platforms. We noticed that reducing the number of X, Y, and Z workgroups dispatched by maximising the workgroup size per dispatch led to a slight increase in performance (200 - 300ms for the entire MSM) on a Linux machine with an Nvidia GPU, but there was no discernible performance difference on an Apple M1 Macbook.
 
 ## Techniques we explored but did not use
+
+### Loop unrolling in WGSL shaders
+
+We [unrolled the loops](https://github.com/TalDerei/webgpu-msm/pull/136) in big integer and Montgomery multiplication shaders, but this caused worse performance. As such, we did not use this technique.
 
 ### Workload balancing
 
