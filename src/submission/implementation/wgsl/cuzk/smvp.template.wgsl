@@ -15,7 +15,6 @@ var<storage, read> new_point_x: array<BigInt>;
 var<storage, read> new_point_y: array<BigInt>;
 
 // Output buffers
-// TODO: rename to bucket_x, etc
 @group(0) @binding(4)
 var<storage, read_write> bucket_x: array<BigInt>;
 @group(0) @binding(5)
