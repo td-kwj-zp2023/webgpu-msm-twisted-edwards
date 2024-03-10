@@ -216,7 +216,7 @@ export const compute_msm = async (
 
   // This is a dynamic variable that determines the number
   // of CSR matrices processed per invocation of the shader. 
-  // TODO: find a safe default
+  // A safe default is 1.
   const num_subtask_chunk_size = 1
 
   const smvp_shader = shaderManager.gen_smvp_shader(
