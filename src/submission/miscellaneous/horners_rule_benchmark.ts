@@ -79,7 +79,7 @@ export const horners_rule_benchmark = async (
   const device = await get_device();
   const commandEncoder = device.createCommandEncoder();
 
-  const x_y_coords_bytes = bigints_to_u8_for_gpu( x_y_coords);
+  const x_y_coords_bytes = bigints_to_u8_for_gpu(x_y_coords);
   const t_z_coords_bytes = bigints_to_u8_for_gpu(t_z_coords);
 
   const x_y_coords_sb = create_and_write_sb(device, x_y_coords_bytes);

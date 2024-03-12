@@ -1,6 +1,6 @@
 /*
  * Module Name: WebGPU Utility Functions
- * 
+ *
  * Description:
  * This helper module provides utility functions for working with WebGPU.
  * It includes scaffolding functions for obtaining a high-performance GPU device,
@@ -36,7 +36,10 @@ export const create_and_write_sb = (
 ): GPUBuffer => {
   const sb = device.createBuffer({
     size: buffer.length,
-    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
+    usage:
+      GPUBufferUsage.STORAGE |
+      GPUBufferUsage.COPY_SRC |
+      GPUBufferUsage.COPY_DST,
   });
   device.queue.writeBuffer(sb, 0, buffer);
   return sb;
@@ -69,7 +72,10 @@ export const create_and_write_ub = (
 export const create_sb = (device: GPUDevice, size: number): GPUBuffer => {
   return device.createBuffer({
     size,
-    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
+    usage:
+      GPUBufferUsage.STORAGE |
+      GPUBufferUsage.COPY_SRC |
+      GPUBufferUsage.COPY_DST,
   });
 };
 
@@ -172,7 +178,7 @@ export const create_bind_group = (
 };
 
 /**
- * Asynchronously create a compute pipeline. It's recommended to use 
+ * Asynchronously create a compute pipeline. It's recommended to use
  * createComputePipelineAsync instead of createComputePipeline to prevent stalls:
  * https://www.khronos.org/assets/uploads/developers/presentations/WebGPU_Best_Practices_Google.pdf.
  * @param {GPUDevice} device - The GPU device to use.

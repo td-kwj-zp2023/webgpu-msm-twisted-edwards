@@ -1,6 +1,6 @@
 /*
  * Module Name: Utilities
- * 
+ *
  * Description:
  * This module provides various utility functions for cryptographic operations.
  */
@@ -230,46 +230,44 @@ export const bigints_to_u8_for_gpu_old = (
  * @param {bigint[]} vals - An array of bigints to convert.
  * @returns {Uint8Array} The resulting byte array for GPU use.
  */
-export const bigints_to_u8_for_gpu = (
-  vals: bigint[],
-): Uint8Array => {
+export const bigints_to_u8_for_gpu = (vals: bigint[]): Uint8Array => {
   const result = new Uint8Array(vals.length * 64);
-  const mask = BigInt(255)
+  const mask = BigInt(255);
 
   for (let i = 0; i < vals.length; i++) {
-    const val = vals[i]
-    result[i * 64 + 60] = Number((val >> BigInt(240)) & mask)
-    result[i * 64 + 61] = Number((val >> (BigInt(248))) & mask)
-    result[i * 64 + 56] = Number((val >> BigInt(224)) & mask)
-    result[i * 64 + 57] = Number((val >> (BigInt(232))) & mask)
-    result[i * 64 + 52] = Number((val >> BigInt(208)) & mask)
-    result[i * 64 + 53] = Number((val >> (BigInt(216))) & mask)
-    result[i * 64 + 48] = Number((val >> BigInt(192)) & mask)
-    result[i * 64 + 49] = Number((val >> (BigInt(200))) & mask)
-    result[i * 64 + 44] = Number((val >> BigInt(176)) & mask)
-    result[i * 64 + 45] = Number((val >> (BigInt(184))) & mask)
-    result[i * 64 + 40] = Number((val >> BigInt(160)) & mask)
-    result[i * 64 + 41] = Number((val >> (BigInt(168))) & mask)
-    result[i * 64 + 36] = Number((val >> BigInt(144)) & mask)
-    result[i * 64 + 37] = Number((val >> (BigInt(152))) & mask)
-    result[i * 64 + 32] = Number((val >> BigInt(128)) & mask)
-    result[i * 64 + 33] = Number((val >> (BigInt(136))) & mask)
-    result[i * 64 + 28] = Number((val >> BigInt(112)) & mask)
-    result[i * 64 + 29] = Number((val >> (BigInt(120))) & mask)
-    result[i * 64 + 24] = Number((val >> BigInt(96)) & mask)
-    result[i * 64 + 25] = Number((val >> (BigInt(104))) & mask)
-    result[i * 64 + 20] = Number((val >> BigInt(80)) & mask)
-    result[i * 64 + 21] = Number((val >> (BigInt(88))) & mask)
-    result[i * 64 + 16] = Number((val >> BigInt(64)) & mask)
-    result[i * 64 + 17] = Number((val >> (BigInt(72))) & mask)
-    result[i * 64 + 12] = Number((val >> BigInt(48)) & mask)
-    result[i * 64 + 13] = Number((val >> (BigInt(56))) & mask)
-    result[i * 64 + 8] = Number((val >> BigInt(32)) & mask)
-    result[i * 64 + 9] = Number((val >> (BigInt(40))) & mask)
-    result[i * 64 + 4] = Number((val >> BigInt(16)) & mask)
-    result[i * 64 + 5] = Number((val >> (BigInt(24))) & mask)
-    result[i * 64 + 0] = Number((val >> BigInt(0)) & mask)
-    result[i * 64 + 1] = Number((val >> (BigInt(8))) & mask)
+    const val = vals[i];
+    result[i * 64 + 60] = Number((val >> BigInt(240)) & mask);
+    result[i * 64 + 61] = Number((val >> BigInt(248)) & mask);
+    result[i * 64 + 56] = Number((val >> BigInt(224)) & mask);
+    result[i * 64 + 57] = Number((val >> BigInt(232)) & mask);
+    result[i * 64 + 52] = Number((val >> BigInt(208)) & mask);
+    result[i * 64 + 53] = Number((val >> BigInt(216)) & mask);
+    result[i * 64 + 48] = Number((val >> BigInt(192)) & mask);
+    result[i * 64 + 49] = Number((val >> BigInt(200)) & mask);
+    result[i * 64 + 44] = Number((val >> BigInt(176)) & mask);
+    result[i * 64 + 45] = Number((val >> BigInt(184)) & mask);
+    result[i * 64 + 40] = Number((val >> BigInt(160)) & mask);
+    result[i * 64 + 41] = Number((val >> BigInt(168)) & mask);
+    result[i * 64 + 36] = Number((val >> BigInt(144)) & mask);
+    result[i * 64 + 37] = Number((val >> BigInt(152)) & mask);
+    result[i * 64 + 32] = Number((val >> BigInt(128)) & mask);
+    result[i * 64 + 33] = Number((val >> BigInt(136)) & mask);
+    result[i * 64 + 28] = Number((val >> BigInt(112)) & mask);
+    result[i * 64 + 29] = Number((val >> BigInt(120)) & mask);
+    result[i * 64 + 24] = Number((val >> BigInt(96)) & mask);
+    result[i * 64 + 25] = Number((val >> BigInt(104)) & mask);
+    result[i * 64 + 20] = Number((val >> BigInt(80)) & mask);
+    result[i * 64 + 21] = Number((val >> BigInt(88)) & mask);
+    result[i * 64 + 16] = Number((val >> BigInt(64)) & mask);
+    result[i * 64 + 17] = Number((val >> BigInt(72)) & mask);
+    result[i * 64 + 12] = Number((val >> BigInt(48)) & mask);
+    result[i * 64 + 13] = Number((val >> BigInt(56)) & mask);
+    result[i * 64 + 8] = Number((val >> BigInt(32)) & mask);
+    result[i * 64 + 9] = Number((val >> BigInt(40)) & mask);
+    result[i * 64 + 4] = Number((val >> BigInt(16)) & mask);
+    result[i * 64 + 5] = Number((val >> BigInt(24)) & mask);
+    result[i * 64 + 0] = Number((val >> BigInt(0)) & mask);
+    result[i * 64 + 1] = Number((val >> BigInt(8)) & mask);
   }
 
   return result;

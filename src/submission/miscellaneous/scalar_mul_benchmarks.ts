@@ -72,14 +72,16 @@ export const scalar_mul_benchmarks = async (
   }
 
   // Convert baseAffinePoints to ETE points
-  const points = (baseAffinePoints as BigIntPoint[]).slice(0, num_scalars).map((x) => {
-    return fieldMath.createPoint(
-      x.x,
-      x.y,
-      fieldMath.Fp.mul(x.x, x.y),
-      BigInt(1),
-    );
-  });
+  const points = (baseAffinePoints as BigIntPoint[])
+    .slice(0, num_scalars)
+    .map((x) => {
+      return fieldMath.createPoint(
+        x.x,
+        x.y,
+        fieldMath.Fp.mul(x.x, x.y),
+        BigInt(1),
+      );
+    });
 
   // Benchmark in CPU
   const expected = cpu_benchmark(points, scalars, cost);

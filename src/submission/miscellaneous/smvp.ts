@@ -67,7 +67,7 @@ export const cpu_smvp_signed = (
       }
 
       if (thread_id === 0 && j === 0) {
-        row_idx = 0
+        row_idx = 0;
       }
 
       const row_begin = all_csc_col_ptr[rp_offset + row_idx];

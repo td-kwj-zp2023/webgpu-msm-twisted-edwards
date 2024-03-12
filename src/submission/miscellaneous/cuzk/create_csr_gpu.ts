@@ -370,7 +370,11 @@ export async function create_csr_precomputation_benchmark(
   const word_size = 16;
 
   const start_decomposed = Date.now();
-  const decomposed_scalars = decompose_scalars(scalars as bigint[], num_words, word_size);
+  const decomposed_scalars = decompose_scalars(
+    scalars as bigint[],
+    num_words,
+    word_size,
+  );
   const elapsed_decomposed = Date.now() - start_decomposed;
   console.log(`CPU took ${elapsed_decomposed}ms to decompose scalars`);
 

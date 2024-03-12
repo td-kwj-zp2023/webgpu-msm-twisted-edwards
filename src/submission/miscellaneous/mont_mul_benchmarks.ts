@@ -157,7 +157,11 @@ export const mont_mul_benchmarks = async (
         expected.push(expensive_computation(a, b, r, cost));
       }
 
-      const input_bytes = bigints_to_u8_for_gpu_old(inputs, num_words, word_size);
+      const input_bytes = bigints_to_u8_for_gpu_old(
+        inputs,
+        num_words,
+        word_size,
+      );
 
       const device = await get_device();
 
