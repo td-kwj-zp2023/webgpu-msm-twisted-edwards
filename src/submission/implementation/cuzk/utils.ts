@@ -6,7 +6,6 @@
  */
 
 import assert from "assert";
-import crypto from "crypto";
 import * as bigintCryptoUtils from "bigint-crypto-utils";
 import { BigIntPoint } from "../../../reference/types";
 import { FieldMath } from "../../../reference/utils/FieldMath";
