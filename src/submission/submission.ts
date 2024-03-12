@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright 2024 Tal Derei and Koh Wei Jie. All Rights Reserved.
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -35,7 +35,6 @@ import {
   u8s_to_numbers_32,
   from_words_le,
   numbers_to_u8s_for_gpu,
-  compute_misc_params,
   decompose_scalars_signed,
 } from "./implementation/cuzk/utils";
 import { cpu_transpose } from "./implementation/cuzk/transpose";
@@ -44,22 +43,15 @@ import {
   parallel_bucket_reduction_1,
   parallel_bucket_reduction_2,
 } from './implementation/cuzk/bpr'
-
-const p = BigInt(
-  "8444461749428370424248824938781546531375899335154063827935233455917409239041",
-);
-const word_size = 13;
-const params = compute_misc_params(p, word_size);
-const num_words = params.num_words;
-const r = params.r;
-const rinv = params.rinv;
-
 import { FieldMath } from "../reference/utils/FieldMath";
+import { p, word_size, num_words, r, rinv } from "./implementation/cuzk/params"
+
 const fieldMath = new FieldMath();
 
 /*
  * End-to-end implementation of the modified cuZK MSM algorithm by Lu et al,
  * 2022: https://eprint.iacr.org/2022/1321.pdf
+ * 
  * Many aspects of cuZK were adapted and modified for our submission, and some
  * aspects were omitted. As such, please refer to the documentation we have
  * written for a more accurate description of our work. We also used techniques
@@ -67,15 +59,14 @@ const fieldMath = new FieldMath();
  * approach:
  * 1. Perform as much of the computation within the GPU as possible, in order
  *    to minimse CPU-GPU and GPU-CPU data transfer, which is slow.
- * 2. Use optimisations inspired by previous years' submissions, such as:
- *    - Montgomery multiplication with smaller limb sizes
+ * 2. Use optimizations inspired by previous years' submissions, such as:
+ *    - Montgomery multiplication and barret reduction with 13-bit limb sizes
  *    - Signed bucket indices
  * 3. Careful memory management to stay within WebGPU's default buffer size
  *    limits.
- * 4. Perform the final computation of the MSM result from the subtask results
- *    (Horner's rule) in the CPU instead of the GPU, as the number of points is
- *    small, and the time taken to compile a shader to perform this computation
- *    is greater than the time it takes for the CPU to do so.
+ * 4. Perform the final computation of (Horner's rule) in the CPU instead of the GPU, 
+ *    as the number of points is small, and the time taken to compile a shader to 
+ *    perform this computation is greater than the time it takes for the CPU to do so.
  */
 export const compute_msm = async (
   bufferPoints: BigIntPoint[] | U32ArrayPoint[] | Buffer,
@@ -84,7 +75,6 @@ export const compute_msm = async (
   force_recompile = false,
 ): Promise<{ x: bigint; y: bigint }> => {
   const input_size = bufferScalars.length / 32;
-
   const chunk_size = input_size >= 65536 ? 16 : 4;
 
   const shaderManager = new ShaderManager(
