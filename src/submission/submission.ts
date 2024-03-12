@@ -35,16 +35,18 @@ import {
   u8s_to_numbers_32,
   from_words_le,
   numbers_to_u8s_for_gpu,
-  decompose_scalars_signed,
 } from "./implementation/cuzk/utils";
-import { cpu_transpose } from "./implementation/cuzk/transpose";
-import { cpu_smvp_signed } from "./implementation/cuzk/smvp";
+import {
+  decompose_scalars_signed,
+} from "./miscellaneous/utils";
+import { cpu_transpose } from "./miscellaneous/transpose";
+import { cpu_smvp_signed } from "./miscellaneous/smvp";
 import {
   parallel_bucket_reduction_1,
   parallel_bucket_reduction_2,
-} from './implementation/cuzk/bpr'
+} from './miscellaneous/bpr'
 import { FieldMath } from "../reference/utils/FieldMath";
-import { p, word_size, num_words, r, rinv } from "./implementation/cuzk/params"
+import { params, p, word_size, num_words } from "./implementation/cuzk/params"
 
 const fieldMath = new FieldMath();
 
@@ -83,6 +85,7 @@ export const compute_msm = async (
 
   /// Intantiate a `ShaderManager` class for managing and invoking shaders.
   const shaderManager = new ShaderManager(
+    params,
     word_size,  
     chunk_size,
     input_size,
@@ -353,10 +356,10 @@ export const compute_msm = async (
     let point = fieldMath.customEdwards.ExtendedPoint.ZERO;
     for (let j = 0; j < b_num_threads; j++) {
       const reduced_point = fieldMath.createPoint(
-        fieldMath.Fp.mul(g_points_x_mont_coords[i * b_num_threads + j], rinv),
-        fieldMath.Fp.mul(g_points_y_mont_coords[i * b_num_threads + j], rinv),
-        fieldMath.Fp.mul(g_points_t_mont_coords[i * b_num_threads + j], rinv),
-        fieldMath.Fp.mul(g_points_z_mont_coords[i * b_num_threads + j], rinv),
+        fieldMath.Fp.mul(g_points_x_mont_coords[i * b_num_threads + j], params.rinv),
+        fieldMath.Fp.mul(g_points_y_mont_coords[i * b_num_threads + j], params.rinv),
+        fieldMath.Fp.mul(g_points_t_mont_coords[i * b_num_threads + j], params.rinv),
+        fieldMath.Fp.mul(g_points_z_mont_coords[i * b_num_threads + j], params.rinv),
       );
       point = point.add(reduced_point);
     }
@@ -493,8 +496,8 @@ export const convert_point_coords_and_decompose_shaders = async (
     }
 
     for (let i = 0; i < input_size; i++) {
-      const expected_x = (x_coords[i] * r) % p;
-      const expected_y = (y_coords[i] * r) % p;
+      const expected_x = (x_coords[i] * params.r) % p;
+      const expected_y = (y_coords[i] * params.r) % p;
       if (
         !(
           expected_x === computed_x_coords[i] &&
@@ -758,10 +761,10 @@ export const smvp_gpu = async (
       i++
     ) {
       const non = {
-        x: fieldMath.Fp.mul(bucket_sum_x_sb_result[i], rinv),
-        y: fieldMath.Fp.mul(bucket_sum_y_sb_result[i], rinv),
-        t: fieldMath.Fp.mul(bucket_sum_t_sb_result[i], rinv),
-        z: fieldMath.Fp.mul(bucket_sum_z_sb_result[i], rinv),
+        x: fieldMath.Fp.mul(bucket_sum_x_sb_result[i], params.rinv),
+        y: fieldMath.Fp.mul(bucket_sum_y_sb_result[i], params.rinv),
+        t: fieldMath.Fp.mul(bucket_sum_t_sb_result[i], params.rinv),
+        z: fieldMath.Fp.mul(bucket_sum_z_sb_result[i], params.rinv),
       };
       output_points_gpu.push(bigIntPointToExtPointType(non));
     }
@@ -770,8 +773,8 @@ export const smvp_gpu = async (
 
     const input_points: ExtPointType[] = [];
     for (let i = 0; i < input_size; i++) {
-      const x = fieldMath.Fp.mul(point_x_sb_result[i], rinv);
-      const y = fieldMath.Fp.mul(point_y_sb_result[i], rinv);
+      const x = fieldMath.Fp.mul(point_x_sb_result[i], params.rinv);
+      const y = fieldMath.Fp.mul(point_y_sb_result[i], params.rinv);
       const t = fieldMath.Fp.mul(x, y);
       const pt = fieldMath.createPoint(x, y, t, BigInt(1));
       if (!pt.equals(zero)) { pt.assertValidity(); }
@@ -960,10 +963,10 @@ const bpr_1 = async (
     const original_bucket_sums: ExtPointType[] = []
     for (let i = 0; i < n; i++) {
       const pt = fieldMath.createPoint(
-        fieldMath.Fp.mul(original_bucket_sum_x_mont_coords[i], rinv),
-        fieldMath.Fp.mul(original_bucket_sum_y_mont_coords[i], rinv),
-        fieldMath.Fp.mul(original_bucket_sum_t_mont_coords[i], rinv),
-        fieldMath.Fp.mul(original_bucket_sum_z_mont_coords[i], rinv),
+        fieldMath.Fp.mul(original_bucket_sum_x_mont_coords[i], params.rinv),
+        fieldMath.Fp.mul(original_bucket_sum_y_mont_coords[i], params.rinv),
+        fieldMath.Fp.mul(original_bucket_sum_t_mont_coords[i], params.rinv),
+        fieldMath.Fp.mul(original_bucket_sum_z_mont_coords[i], params.rinv),
       );
       if (!pt.equals(zero)) { pt.assertValidity(); }
       original_bucket_sums.push(pt);
@@ -972,10 +975,10 @@ const bpr_1 = async (
     const m_points: ExtPointType[] = []
     for (let i = 0; i < n; i++) {
       const pt = fieldMath.createPoint(
-        fieldMath.Fp.mul(m_points_x_mont_coords[i], rinv),
-        fieldMath.Fp.mul(m_points_y_mont_coords[i], rinv),
-        fieldMath.Fp.mul(m_points_t_mont_coords[i], rinv),
-        fieldMath.Fp.mul(m_points_z_mont_coords[i], rinv),
+        fieldMath.Fp.mul(m_points_x_mont_coords[i], params.rinv),
+        fieldMath.Fp.mul(m_points_y_mont_coords[i], params.rinv),
+        fieldMath.Fp.mul(m_points_t_mont_coords[i], params.rinv),
+        fieldMath.Fp.mul(m_points_z_mont_coords[i], params.rinv),
       );
       if (!pt.equals(zero)) { pt.assertValidity(); }
       m_points.push(pt);
@@ -986,10 +989,10 @@ const bpr_1 = async (
     for (let i = 0; i < num_threads; i++) {
       const idx = subtask_idx * num_threads + i
       const pt = fieldMath.createPoint(
-        fieldMath.Fp.mul(g_points_x_mont_coords[idx], rinv),
-        fieldMath.Fp.mul(g_points_y_mont_coords[idx], rinv),
-        fieldMath.Fp.mul(g_points_t_mont_coords[idx], rinv),
-        fieldMath.Fp.mul(g_points_z_mont_coords[idx], rinv),
+        fieldMath.Fp.mul(g_points_x_mont_coords[idx], params.rinv),
+        fieldMath.Fp.mul(g_points_y_mont_coords[idx], params.rinv),
+        fieldMath.Fp.mul(g_points_t_mont_coords[idx], params.rinv),
+        fieldMath.Fp.mul(g_points_z_mont_coords[idx], params.rinv),
       );
       if (!pt.equals(zero)) { pt.assertValidity(); }
       g_points.push(pt);
@@ -1102,10 +1105,10 @@ const bpr_2 = async (
     const m_points: ExtPointType[] = []
     for (let i = 0; i < n; i++) {
       const pt = fieldMath.createPoint(
-        fieldMath.Fp.mul(m_points_x_mont_coords[i], rinv),
-        fieldMath.Fp.mul(m_points_y_mont_coords[i], rinv),
-        fieldMath.Fp.mul(m_points_t_mont_coords[i], rinv),
-        fieldMath.Fp.mul(m_points_z_mont_coords[i], rinv),
+        fieldMath.Fp.mul(m_points_x_mont_coords[i], params.rinv),
+        fieldMath.Fp.mul(m_points_y_mont_coords[i], params.rinv),
+        fieldMath.Fp.mul(m_points_t_mont_coords[i], params.rinv),
+        fieldMath.Fp.mul(m_points_z_mont_coords[i], params.rinv),
       );
       if (!pt.equals(zero)) { pt.assertValidity(); }
       m_points.push(pt);
@@ -1116,10 +1119,10 @@ const bpr_2 = async (
     for (let i = 0; i < num_threads; i++) {
       const idx = subtask_idx * num_threads + i
       const pt = fieldMath.createPoint(
-        fieldMath.Fp.mul(g_points_x_mont_coords[idx], rinv),
-        fieldMath.Fp.mul(g_points_y_mont_coords[idx], rinv),
-        fieldMath.Fp.mul(g_points_t_mont_coords[idx], rinv),
-        fieldMath.Fp.mul(g_points_z_mont_coords[idx], rinv),
+        fieldMath.Fp.mul(g_points_x_mont_coords[idx], params.rinv),
+        fieldMath.Fp.mul(g_points_y_mont_coords[idx], params.rinv),
+        fieldMath.Fp.mul(g_points_t_mont_coords[idx], params.rinv),
+        fieldMath.Fp.mul(g_points_z_mont_coords[idx], params.rinv),
       );
       if (!pt.equals(zero)) { pt.assertValidity(); }
       g_points.push(pt);

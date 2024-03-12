@@ -18,7 +18,6 @@ import ec_funcs from "../implementation/wgsl/curve/ec.template.wgsl";
 import montgomery_product_funcs from "../implementation/wgsl/montgomery/mont_pro_product.template.wgsl";
 import horners_rule_shader from "./wgsl/horners_rule.template.wgsl";
 import {
-  are_point_arr_equal,
   compute_misc_params,
   u8s_to_bigints,
   gen_p_limbs,
@@ -26,6 +25,7 @@ import {
   gen_d_limbs,
   bigints_to_u8_for_gpu,
 } from "../implementation/cuzk/utils";
+import { are_point_arr_equal } from "./utils";
 
 export const horners_rule_benchmark = async (
   baseAffinePoints: BigIntPoint[] | U32ArrayPoint[] | Buffer,

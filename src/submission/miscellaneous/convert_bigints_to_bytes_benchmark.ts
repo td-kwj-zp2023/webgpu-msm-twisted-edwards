@@ -1,8 +1,6 @@
 import { BigIntPoint, U32ArrayPoint } from "../../reference/types";
-import {
-  bigints_to_u8_for_gpu,
-  bigints_to_16_bit_words_for_gpu,
-} from "../implementation/cuzk/utils";
+import { bigints_to_u8_for_gpu } from "../implementation/cuzk/utils";
+import { bigints_to_16_bit_words_for_gpu } from "../miscellaneous/utils";
 import assert from "assert";
 
 const num_words = 16;
