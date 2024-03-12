@@ -3,7 +3,6 @@ import assert from "assert";
 import { BigIntPoint, U32ArrayPoint } from "../../reference/types";
 import { ExtPointType } from "@noble/curves/abstract/edwards";
 import { FieldMath } from "../../reference/utils/FieldMath";
-import { genRandomFieldElement } from "../implementation/cuzk/utils";
 import {
   compute_misc_params,
   u8s_to_points,
@@ -27,6 +26,7 @@ import field_funcs from "../implementation/wgsl/field/field.template.wgsl";
 import ec_funcs from "../implementation/wgsl/curve/ec.template.wgsl";
 import add_points_benchmark_shader from "./wgsl/add_points_benchmark.template.wgsl";
 import montgomery_product_funcs from "../implementation/wgsl/montgomery/mont_pro_product.template.wgsl";
+import { genRandomFieldElement } from "./utils";
 
 const setup_shader_code = (
   shader: string,

@@ -12,7 +12,7 @@ import {
   create_sb,
   read_from_gpu,
 } from "../../implementation/cuzk/gpu";
-import { cpu_transpose_classic } from "../../implementation/cuzk/transpose";
+import { cpu_transpose_classic } from "../transpose";
 import assert from "assert";
 import seedrandom from "seedrandom";
 

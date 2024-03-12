@@ -4,7 +4,6 @@ import { BigIntPoint, U32ArrayPoint } from "../../reference/types";
 import {
   to_words_le,
   u8s_to_numbers,
-  decompose_scalars,
   compute_misc_params,
   bigints_to_u8_for_gpu,
 } from "../implementation/cuzk/utils";
@@ -20,6 +19,7 @@ import {
 } from "../implementation/cuzk/gpu";
 import extract_word_from_bytes_le_shader from "../implementation/wgsl/cuzk/extract_word_from_bytes_le.template.wgsl";
 import decompose_scalars_shader from "./wgsl/decompose_scalars.template.wgsl";
+import { decompose_scalars } from "./utils";
 
 export const decompose_scalars_ts_benchmark = async (
   baseAffinePoints: BigIntPoint[] | U32ArrayPoint[] | Buffer,

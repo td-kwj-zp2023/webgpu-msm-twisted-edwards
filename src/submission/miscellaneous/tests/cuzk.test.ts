@@ -1,15 +1,15 @@
 jest.setTimeout(10000000);
 import { FieldMath } from "../../../reference/utils/FieldMath";
 import { ExtPointType } from "@noble/curves/abstract/edwards";
-import { decompose_scalars_signed } from "../../implementation/cuzk/utils";
-import { cpu_transpose } from "../../implementation/cuzk/transpose";
-import { cpu_smvp_signed } from "../../implementation/cuzk/smvp";
+import { decompose_scalars_signed } from "../utils";
+import { cpu_transpose } from "../transpose";
+import { cpu_smvp_signed } from "../smvp";
 import {
   running_sum_bucket_reduction,
   parallel_bucket_reduction,
   parallel_bucket_reduction_1,
   parallel_bucket_reduction_2,
-} from '../../implementation/cuzk/bpr'
+} from '../bpr'
 
 const fieldMath = new FieldMath();
 const x = BigInt(
