@@ -21,20 +21,17 @@ fn get_p() -> BigInt {
     return p;
 }
 
-// The Montgomery product algorithm from
-// https://github.com/mitschabaude/montgomery#13-x-30-bit-multiplication
-// It is suitable for limb sizes 14 and 15
+/// The Montgomery product algorithm from
+/// https://github.com/mitschabaude/montgomery#13-x-30-bit-multiplication
+/// It is suitable for limb sizes 14 and 15.
 fn montgomery_product(x: ptr<function, BigInt>, y: ptr<function, BigInt>) -> BigInt {
     var s: BigInt;
     var p = get_p();
 
     for (var i = 0u; i < NUM_WORDS; i ++) {
         var t = s.limbs[0] + (*x).limbs[i] * (*y).limbs[0];
-
         var tprime = t & MASK;
-
         var qi = (N0 * tprime) & MASK;
-
         var c = (t + qi * p.limbs[0]) >> WORD_SIZE;
 
         for (var j = 1u; j < NUM_WORDS - 1u; j ++) {
@@ -66,7 +63,7 @@ fn montgomery_product(x: ptr<function, BigInt>, y: ptr<function, BigInt>) -> Big
 }
 
 fn conditional_reduce(x: ptr<function, BigInt>, y: ptr<function, BigInt>) -> BigInt {
-    // Determine if x > y
+    /// Determine if x > y.
     var x_gt_y = bigint_gt(x, y);
 
     if (x_gt_y == 1u) {
