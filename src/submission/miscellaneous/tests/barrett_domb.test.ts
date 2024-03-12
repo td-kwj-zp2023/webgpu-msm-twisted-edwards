@@ -1,6 +1,4 @@
-import {
-  to_words_le,
-} from "../../implementation/cuzk/utils";
+import { to_words_le } from "../../implementation/cuzk/utils";
 import {
   calc_m,
   mp_adder,

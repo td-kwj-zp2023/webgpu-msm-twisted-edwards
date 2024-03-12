@@ -13,7 +13,10 @@ export const cuzk_typescript_serial = async (
 ): Promise<any> => {
   console.log("Starting Serial cuZK!");
 
-  const result = await execute_cuzk(baseAffinePoints as BigIntPoint[], scalars as bigint[]);
+  const result = await execute_cuzk(
+    baseAffinePoints as BigIntPoint[],
+    scalars as bigint[],
+  );
 
   const result_affine = result.toAffine();
   const x = result_affine.x;

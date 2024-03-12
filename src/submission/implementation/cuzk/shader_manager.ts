@@ -1,6 +1,6 @@
 /*
  * Module Name: Shader manager
- * 
+ *
  * Description:
  * A helper class which allows our end-to-end cuzk implementation to generate all
  * the WGSL shaders it needs easily. It precomputes all the necessary variables (such as
@@ -18,7 +18,7 @@ import barrett_funcs from "../wgsl/cuzk/barrett.template.wgsl";
 import montgomery_product_funcs from "../wgsl/montgomery/mont_pro_product.template.wgsl";
 import transpose_serial_shader from "../wgsl/cuzk/transpose.wgsl";
 import smvp_shader from "../wgsl/cuzk/smvp.template.wgsl";
-import bpr_shader from '../wgsl/cuzk/bpr.template.wgsl'
+import bpr_shader from "../wgsl/cuzk/bpr.template.wgsl";
 import {
   compute_misc_params,
   gen_p_limbs,
@@ -26,7 +26,7 @@ import {
   gen_d_limbs,
   gen_mu_limbs,
 } from "./utils";
-import { p } from './params';
+import { p } from "./params";
 
 /**
  * A helper class which allows cuzk to generate all the shaders it needs
@@ -180,9 +180,7 @@ export class ShaderManager {
   }
 
   /// Generate bucket point reduction shader.
-  public gen_bpr_shader(
-    workgroup_size: number,
-  ) {
+  public gen_bpr_shader(workgroup_size: number) {
     const shaderCode = mustache.render(
       bpr_shader,
       {

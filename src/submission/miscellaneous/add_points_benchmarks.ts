@@ -166,7 +166,6 @@ export const add_points_benchmarks = async (
 
   print_avg_timings(timings_any_a);
 
-
   return { x: BigInt(1), y: BigInt(0) };
 };
 
