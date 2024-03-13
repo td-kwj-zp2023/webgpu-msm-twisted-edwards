@@ -428,11 +428,8 @@ export const from_words_le = (
   num_words: number,
   word_size: number,
 ): bigint => {
-  assert(num_words == words.length);
   let val = BigInt(0);
   for (let i = 0; i < num_words; i++) {
-    assert(words[i] < 2 ** word_size);
-    assert(words[i] >= 0);
     val +=
       BigInt(2) ** BigInt((num_words - i - 1) * word_size) *
       BigInt(words[num_words - 1 - i]);
