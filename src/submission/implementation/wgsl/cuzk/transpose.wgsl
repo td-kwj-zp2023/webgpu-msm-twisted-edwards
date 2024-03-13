@@ -43,10 +43,10 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
     let subtask_idx = global_id.x;
 
-    // Number of columns
+    // Number of rows
     let m = params[0];
 
-    // Number of rows
+    // Number of columns
     let n = params[1];
 
     // Input size
