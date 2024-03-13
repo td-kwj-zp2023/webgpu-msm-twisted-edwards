@@ -61,7 +61,7 @@ const fieldMath = new FieldMath();
  * 1. Perform as much of the computation within the GPU as possible, in order
  *    to minimse CPU-GPU and GPU-CPU data transfer, which is slow.
  * 2. Use optimizations inspired by previous years' submissions, such as:
- *    - Montgomery multiplication and barret reduction with 13-bit limb sizes
+ *    - Montgomery multiplication and Barrett reduction with 13-bit limb sizes
  *    - Signed bucket indices
  * 3. Careful memory management to stay within WebGPU's default buffer size
  *    limits.
