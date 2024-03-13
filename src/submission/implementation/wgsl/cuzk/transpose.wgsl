@@ -70,7 +70,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
             // necessary even though it appears that only 1 thread writes to
             // each subtask-segment of the storage buffers. Without them, the
             // result will be incorrect.
-            // storageBarrier();
+            storageBarrier();
         }
     }
 
@@ -81,7 +81,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
         // Ditto - this storage barrier is necessary to avoid an incorrect
         // result.
-        // storageBarrier();
+        storageBarrier();
     }
 
     // "Traverse the nonzero elements again and move them to their final
@@ -99,7 +99,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
             all_csc_val_idxs[cci_offset + loc] = val;
             val ++;
-            // storageBarrier();
+            storageBarrier();
         }
     }
 
