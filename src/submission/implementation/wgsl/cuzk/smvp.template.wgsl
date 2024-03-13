@@ -79,7 +79,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
     let rp_offset = (subtask_idx + subtask_offset) * (num_columns + 1u);
 
-    /// As we use the signed bucket index technique, each thread handles two scalars.
+    /// As we use the signed bucket index technique, each thread handles two buckets.
     for (var j = 0u; j < 2u; j ++) {
         var row_idx = (id % h) + h;
         if (j == 1u) {
