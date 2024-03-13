@@ -1,5 +1,3 @@
-
-
 // Input buffers
 @group(0) @binding(0)
 var<storage, read> all_csr_col_idx: array<u32>;
@@ -27,9 +25,6 @@ fn calc_start_end(m: u32, n: u32, i: u32) -> vec2<u32> {
     }
 }
 
-
-// Algorithm 3: ScanTrans: Scan-based Parallel Sparse Matrix Transposition
-// https://synergy.cs.vt.edu/pubs/papers/wang-transposition-ics16.pdf
 @compute
 @workgroup_size({{ workgroup_size }})
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {    
@@ -63,9 +58,6 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let cci_offset = subtask_idx * input_size;
     let curr_offset = subtask_idx * n;
 
-    // partition nnz evenly on threads, get start in csrColIdx
-    // and len for each thread
-
     // "Count the number of nonzero elements in each column" (Wang et al, 2016)
     for (var i = 0u; i < m; i ++) {
         let r = calc_start_end(m, n, i);
@@ -78,7 +70,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
             // necessary even though it appears that only 1 thread writes to
             // each subtask-segment of the storage buffers. Without them, the
             // result will be incorrect.
-            storageBarrier();
+            // storageBarrier();
         }
     }
 
@@ -89,7 +81,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
         // Ditto - this storage barrier is necessary to avoid an incorrect
         // result.
-        storageBarrier();
+        // storageBarrier();
     }
 
     // "Traverse the nonzero elements again and move them to their final
@@ -107,7 +99,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
             all_csc_val_idxs[cci_offset + loc] = val;
             val ++;
-            storageBarrier();
+            // storageBarrier();
         }
     }
 
