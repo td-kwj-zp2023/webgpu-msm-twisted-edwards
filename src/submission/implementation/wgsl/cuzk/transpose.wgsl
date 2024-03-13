@@ -1,10 +1,12 @@
+
+
 // Input buffers
 @group(0) @binding(0)
 var<storage, read> all_csr_col_idx: array<u32>;
 
 // Output buffers
 @group(0) @binding(1)
-var<storage, read_write> all_csc_col_ptr: array<u32>;
+var<storage, read_write> all_csc_col_ptr: array<atomic<u32>>;
 @group(0) @binding(2)
 var<storage, read_write> all_csc_val_idxs: array<u32>;
 
@@ -25,6 +27,9 @@ fn calc_start_end(m: u32, n: u32, i: u32) -> vec2<u32> {
     }
 }
 
+
+// Algorithm 3: ScanTrans: Scan-based Parallel Sparse Matrix Transposition
+// https://synergy.cs.vt.edu/pubs/papers/wang-transposition-ics16.pdf
 @compute
 @workgroup_size({{ workgroup_size }})
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {    
@@ -58,15 +63,16 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let cci_offset = subtask_idx * input_size;
     let curr_offset = subtask_idx * n;
 
+    // partition nnz evenly on threads, get start in csrColIdx
+    // and len for each thread
+
     // "Count the number of nonzero elements in each column" (Wang et al, 2016)
     for (var i = 0u; i < m; i ++) {
         let r = calc_start_end(m, n, i);
         let start = r[0];
         let end = r[1];
         for (var j = start; j < end; j ++) {
-            all_csc_col_ptr[
-                ccp_offset + all_csr_col_idx[cci_offset + j] + 1u
-            ] += 1u;
+            atomicAdd(&all_csc_col_ptr[ccp_offset + all_csr_col_idx[cci_offset + j] + 1u], 1u);
 
             // For some unknown reason the calls to storageBarrier() is
             // necessary even though it appears that only 1 thread writes to
@@ -78,8 +84,8 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
     // Prefix sum, aka cumulative/incremental sum
     for (var i = 1u; i < n + 1u; i ++) {
-        all_csc_col_ptr[ccp_offset + i] +=
-            all_csc_col_ptr[ccp_offset + i - 1u];
+        var a = atomicLoad(&all_csc_col_ptr[ccp_offset + i - 1u]);
+        atomicAdd(&all_csc_col_ptr[ccp_offset + i], a);
 
         // Ditto - this storage barrier is necessary to avoid an incorrect
         // result.
@@ -95,13 +101,9 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         let start = r[0];
         let end = r[1];
         for (var j = start; j < end; j ++) {
-            let loc = all_csc_col_ptr[
-                ccp_offset + all_csr_col_idx[cci_offset + j]
-            ] + all_curr[
-                curr_offset + all_csr_col_idx[cci_offset + j]
-            ];
-
-            all_curr[curr_offset + all_csr_col_idx[cci_offset + j]] ++;
+            var loc = atomicLoad(&all_csc_col_ptr[ccp_offset + all_csr_col_idx[cci_offset + j]]);
+            loc += all_curr[curr_offset + all_csr_col_idx[cci_offset + j]];
+            all_curr[curr_offset + all_csr_col_idx[cci_offset + j]]++;
 
             all_csc_val_idxs[cci_offset + loc] = val;
             val ++;
