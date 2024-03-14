@@ -5,13 +5,13 @@
 {{> montgomery_product_funcs }}
 {{ > extract_word_from_bytes_le_funcs }}
 
-// Input buffers
+/// Input storage buffers.
 @group(0) @binding(0)
 var<storage, read> coords: array<u32>;
 @group(0) @binding(1)
 var<storage, read> scalars: array<u32>;
 
-// Output buffers
+/// Output storage buffers.
 @group(0) @binding(2)
 var<storage, read_write> point_x: array<BigInt>;
 @group(0) @binding(3)
@@ -19,13 +19,13 @@ var<storage, read_write> point_y: array<BigInt>;
 @group(0) @binding(4)
 var<storage, read_write> chunks: array<u32>;
 
-// Uniform buffer for parameters
+/// Uniform storage buffer.
 @group(0) @binding(5)
 var<uniform> input_size: u32;
 
 const NUM_SUBTASKS = {{ num_subtasks }}u;
 
-// Scalar chunk bitwidth
+/// Scalar chunk bitwidth.
 const CHUNK_SIZE = {{ chunk_size }}u;
 
 fn get_r() -> BigInt {
@@ -43,10 +43,8 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
     let INPUT_SIZE = input_size;
 
-    // Store the x and y coordinates as byte arrays for easier indexing
-    // [x8, y8, x8, y8]
-    // id = [0, ..., num_points]
-    // 
+    // Store the x and y coordinates as byte arrays ([x8, y8, x8, y8]) 
+    /// for easier indexing, where id = [0, ..., num_points].
     var x_bytes: array<u32, 16>;
     var y_bytes: array<u32, 16>;
     for (var i = 0u; i < 8u; i++) {
@@ -61,7 +59,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         y_bytes[15 - (i * 2) - 1] = y >> 16u;
     }
 
-    // Convert the byte arrays to BigInts with word_size limbs
+    /// Convert the byte arrays to BigInts with word_size limbs.
     var x_bigint: BigInt;
     var y_bigint: BigInt;
     for (var i = 0u; i < NUM_WORDS - 1u; i ++) {
@@ -73,15 +71,12 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     x_bigint.limbs[NUM_WORDS - 1u] = x_bytes[0] >> shift;
     y_bigint.limbs[NUM_WORDS - 1u] = y_bytes[0] >> shift;
 
-    // Convert x and y coordinates to Montgomery form
+    /// Convert x and y coordinates to Montgomery form.
     var r = get_r();
     point_x[id] = field_mul(&x_bigint, &r);
     point_y[id] = field_mul(&y_bigint, &r);
 
-    // Note that we only compute the t and z coordinates in the SMVP shader
-    // as WebGPU limits the number of buffers per shader to 8.
-
-    // Decompose scalars
+    /// Decompose scalars.
     var scalar_bytes: array<u32, 16>;
     for (var i = 0u; i < 8u; i++) {
         let s = scalars[id * 8 + i];
@@ -91,7 +86,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         scalar_bytes[15 - (i * 2) - 1] = hi;
     }
 
-    // Extract scalar chunks and store them in chunks_arr
+    /// Extract scalar chunks and store them in chunks_arr.
     var chunks_arr: array<u32, {{ num_subtasks }}>;
     for (var i = 0u; i < NUM_SUBTASKS; i++) {
         let offset = i * INPUT_SIZE;
@@ -99,7 +94,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     }
     chunks_arr[NUM_SUBTASKS - 1] = scalar_bytes[0] >> (((NUM_SUBTASKS * CHUNK_SIZE - 256u) + 16u) - CHUNK_SIZE);
 
-    // Iterate through chunks_arr to compute the signed indices
+    /// Iterate through chunks_arr to compute the signed indices.
     let l = {{ num_columns }}u;
     let s = l / 2u;
 
@@ -118,9 +113,9 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     for (var i = 0u; i < NUM_SUBTASKS; i++) {
         let offset = i * INPUT_SIZE;
 
-        // Note that we add s (half_num_columns) to the bucket index so we
-        // don't store negative values, while retaining information about the
-        // sign of the original index.
+        /// Note that we add s (half_num_columns) to the bucket index so we
+        /// don't store negative values, while retaining information about the
+        /// sign of the original index.
         chunks[id + offset] = u32(signed_slices[i]) + s;
     }
 
