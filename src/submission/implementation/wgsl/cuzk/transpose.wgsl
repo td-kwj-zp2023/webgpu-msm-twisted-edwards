@@ -32,6 +32,7 @@ var<uniform> params: vec3<u32>;
 @compute
 @workgroup_size({{ workgroup_size }})
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {    
+    /// Subtask id.
     let subtask_idx = global_id.x;
 
     /// Number of rows.
@@ -49,14 +50,12 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let curr_offset = subtask_idx * n;
 
     /// "Count the number of nonzero elements in each column" (Wang et al, 2016).
-    let start = i * n;
-    let end = i * n + n;
-    for (var j = start; j < end; j ++) {
+    for (var j = 0u; j < input_size; j++) {
         atomicAdd(&all_csc_col_ptr[ccp_offset + all_csr_col_idx[cci_offset + j] + 1u], 1u);
     }
 
-    /./ Prefix sum, aka cumulative/incremental sum.
-    for (var i = 1u; i < n + 1u; i ++) {
+    /// Prefix sum, aka cumulative/incremental sum.
+    for (var i = 1u; i < n + 1u; i++) {
         var incremental_sum = atomicLoad(&all_csc_col_ptr[ccp_offset + i - 1u]);
         atomicAdd(&all_csc_col_ptr[ccp_offset + i], incremental_sum);
     }
@@ -65,12 +64,12 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     /// positions determined by the column offsets in csc_col_ptr and their
     /// current relative positions in curr." (Wang et al, 2016).
     var val = 0u;
-    for (var j = start; j < end; j ++) {
+    for (var j = 0u; j < input_size; j++) {
         var loc = atomicLoad(&all_csc_col_ptr[ccp_offset + all_csr_col_idx[cci_offset + j]]);
         loc += all_curr[curr_offset + all_csr_col_idx[cci_offset + j]];
         all_curr[curr_offset + all_csr_col_idx[cci_offset + j]]++;
         all_csc_val_idxs[cci_offset + loc] = val;
-        val ++;
+        val++;
     }
 
     {{{ recompile }}}
