@@ -65,7 +65,7 @@ fn double_and_add(point: Point, scalar: u32) -> Point {
 @workgroup_size({{ workgroup_size }})
 fn stage_1(@builtin(global_invocation_id) global_id: vec3<u32>) {    
     let thread_id = global_id.x; 
-    let num_threads = {{ workgroup_size }}u;
+    let num_threads = {{ workgroup_size }}u * 2;
 
     let subtask_idx = params[0];
     let num_columns = params[1];
@@ -74,12 +74,14 @@ fn stage_1(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let n = num_columns / 2u;
 
     /// Number of buckets to reduce per thread.
-    let buckets_per_thread = n / num_threads;
-    let bucket_sum_offset = n * subtask_idx;
+    let buckets_per_thread = n / {{ workgroup_size }}u;
+
+    /// Bucket offset per 2 subtasks.
+    let bucket_sum_offset = num_columns * subtask_idx;
 
     var idx = bucket_sum_offset; 
     if (thread_id != 0u) {
-        idx = (num_threads - thread_id) * buckets_per_thread + bucket_sum_offset;
+        idx = (num_threads - thread_id) * buckets_per_thread + bucket_sum_offset; // add # CSR matrices
     }
 
     var m = Point(

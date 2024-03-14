@@ -280,7 +280,11 @@ export const compute_msm = async (
   /// followed by a scalar multiplication (Algorithm 4 of the cuZK paper).                    /
   /////////////////////////////////////////////////////////////////////////////////////////////
 
-  const b_num_x_workgroups = 1;
+  /// This is a dynamic variable that determines the number of CSR
+  /// matrices processed per invocation of the BPR shader. A safe default is 1.
+  const num_subtask_bpr_chunk_size = 2;
+
+  const b_num_x_workgroups = num_subtask_bpr_chunk_size;
   const b_num_y_workgroups = 1;
   const b_num_z_workgroups = 1;
   const b_workgroup_size = 256;
@@ -297,7 +301,7 @@ export const compute_msm = async (
   const bpr_shader = shaderManager.gen_bpr_shader(b_workgroup_size);
 
   /// Stage 1: Bucket points reduction (BPR)
-  for (let subtask_idx = 0; subtask_idx < num_subtasks; subtask_idx++) {
+  for (let subtask_idx = 0; subtask_idx < num_subtasks; subtask_idx += num_subtask_bpr_chunk_size) {
     await bpr_1(
       bpr_shader,
       subtask_idx,
