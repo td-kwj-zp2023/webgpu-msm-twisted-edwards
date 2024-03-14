@@ -67,21 +67,26 @@ fn double_and_add(point: Point, scalar: u32) -> Point {
 fn main_1(@builtin(global_invocation_id) global_id: vec3<u32>) {    
     let thread_id = global_id.x; 
     let num_threads = {{ workgroup_size }}u;
-
+    
     let subtask_idx = params[0];
     let num_columns = params[1];
+
+    let gidx = global_id.x; 
+    let gidy = global_id.y; 
+    var gidz = global_id.z;
+    let id = (gidx + gidy) + gidz;
 
     // Number of buckets per subtask
     let n = num_columns / 2u;
 
     // Number of buckets to reduce per thread
-    let buckets_per_thread = n / num_threads;
+    let buckets_per_thread = n / num_threads / 2;
 
     let bucket_sum_offset = n * subtask_idx;
 
     var idx = bucket_sum_offset; 
-    if (thread_id != 0u) {
-        idx = (num_threads - thread_id) * buckets_per_thread + bucket_sum_offset;
+    if (id != 0u) {
+        idx = (num_threads * 2 - id) * buckets_per_thread + bucket_sum_offset;
     }
 
     var m = Point(
@@ -93,7 +98,7 @@ fn main_1(@builtin(global_invocation_id) global_id: vec3<u32>) {
     var g = m;
 
     for (var i = 0u; i < buckets_per_thread - 1u; i ++) {
-        let idx = (num_threads - thread_id) * buckets_per_thread - 1u - i;
+        let idx = (num_threads * 2 - id) * buckets_per_thread - 1u - i;
         let bi = bucket_sum_offset + idx;
         let b = Point(
             bucket_sum_x[bi],
@@ -110,7 +115,7 @@ fn main_1(@builtin(global_invocation_id) global_id: vec3<u32>) {
     bucket_sum_t[idx] = m.t;
     bucket_sum_z[idx] = m.z;
 
-    let t = subtask_idx * num_threads + thread_id;
+    let t = subtask_idx * num_threads + id;
     g_points_x[t] = g.x;
     g_points_y[t] = g.y;
     g_points_t[t] = g.t;
