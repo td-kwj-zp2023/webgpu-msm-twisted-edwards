@@ -32,7 +32,10 @@ export const smtvp_wgsl = async (
 ): Promise<{ x: bigint; y: bigint }> => {
   console.log("Starting WGSL SMTVP!");
 
-  const result = await smtvp(baseAffinePoints as BigIntPoint[], scalars as bigint[]);
+  const result = await smtvp(
+    baseAffinePoints as BigIntPoint[],
+    scalars as bigint[],
+  );
   return result;
 };
 

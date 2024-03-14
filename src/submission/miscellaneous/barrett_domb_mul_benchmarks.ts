@@ -2,7 +2,6 @@ import mustache from "mustache";
 import { calc_m, barrett_domb_mul } from "./barrett_domb";
 import {
   compute_misc_params,
-  genRandomFieldElement,
   from_words_le,
   to_words_le,
   gen_p_limbs,
@@ -17,6 +16,7 @@ import field_functions from "../implementation/wgsl/field/field.template.wgsl";
 import barrett_functions from "./wgsl/barrett_domb.template.wgsl";
 import barrett_benchmarks_shader from "./wgsl/barrett_benchmarks_shader.template.wgsl";
 import montgomery_product_funcs from "../implementation/wgsl/montgomery/mont_pro_product.template.wgsl";
+import { genRandomFieldElement } from "./utils";
 
 export const barrett_domb_mul_benchmarks = async (): Promise<{
   x: bigint;

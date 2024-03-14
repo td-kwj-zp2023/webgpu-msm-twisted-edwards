@@ -4,8 +4,8 @@
 {{> bigint_funcs }}
 {{> ec_funcs }}
 
-// Used as input buffers for the bucket sums from SMVP, but also repurposed to
-// store the m points
+/// Used as input buffers for the bucket sums from SMVP, but also repurposed to
+/// store the m points.
 @group(0) @binding(0)
 var<storage, read_write> bucket_sum_x: array<BigInt>;
 @group(0) @binding(1)
@@ -15,7 +15,7 @@ var<storage, read_write> bucket_sum_t: array<BigInt>;
 @group(0) @binding(3)
 var<storage, read_write> bucket_sum_z: array<BigInt>;
 
-// Output buffers to store the g points
+/// Output buffers to store the g points.
 @group(0) @binding(4)
 var<storage, read_write> g_points_x: array<BigInt>;
 @group(0) @binding(5)
@@ -25,7 +25,7 @@ var<storage, read_write> g_points_t: array<BigInt>;
 @group(0) @binding(7)
 var<storage, read_write> g_points_z: array<BigInt>;
 
-// Params buffer
+// Unfiform storage buffer.
 @group(0) @binding(8)
 var<uniform> params: vec2<u32>;
 
@@ -42,11 +42,10 @@ fn get_paf() -> Point {
     result.z = r;
     return result;
 }
-
-// This double-and-add code is adapted from the ZPrize test harness:
-// https://github.com/demox-labs/webgpu-msm/blob/main/src/reference/webgpu/wgsl/Curve.ts#L78
+/// This double-and-add code is adapted from the ZPrize test harness:
+/// https://github.com/demox-labs/webgpu-msm/blob/main/src/reference/webgpu/wgsl/Curve.ts#L78.
 fn double_and_add(point: Point, scalar: u32) -> Point {
-    // Set result to the point at infinity
+    /// Set result to the point at infinity.
     var result: Point = get_paf();
 
     var s = scalar;
@@ -64,19 +63,18 @@ fn double_and_add(point: Point, scalar: u32) -> Point {
 
 @compute
 @workgroup_size({{ workgroup_size }})
-fn main_1(@builtin(global_invocation_id) global_id: vec3<u32>) {    
+fn stage_1(@builtin(global_invocation_id) global_id: vec3<u32>) {    
     let thread_id = global_id.x; 
     let num_threads = {{ workgroup_size }}u;
 
     let subtask_idx = params[0];
     let num_columns = params[1];
 
-    // Number of buckets per subtask
+    /// Number of buckets per subtask.
     let n = num_columns / 2u;
 
-    // Number of buckets to reduce per thread
+    /// Number of buckets to reduce per thread.
     let buckets_per_thread = n / num_threads;
-
     let bucket_sum_offset = n * subtask_idx;
 
     var idx = bucket_sum_offset; 
@@ -121,19 +119,18 @@ fn main_1(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
 @compute
 @workgroup_size({{ workgroup_size }})
-fn main_2(@builtin(global_invocation_id) global_id: vec3<u32>) {    
+fn stage_2(@builtin(global_invocation_id) global_id: vec3<u32>) {    
     let thread_id = global_id.x; 
     let num_threads = {{ workgroup_size }}u;
 
     let subtask_idx = params[0];
     let num_columns = params[1];
 
-    // Number of buckets per subtask
+    /// Number of buckets per subtask.
     let n = num_columns / 2u;
 
-    // Number of buckets to reduce per thread
+    /// Number of buckets to reduce per thread.
     let buckets_per_thread = n / num_threads;
-
     let bucket_sum_offset = n * subtask_idx;
 
     var idx = bucket_sum_offset; 
@@ -156,7 +153,7 @@ fn main_2(@builtin(global_invocation_id) global_id: vec3<u32>) {
         g_points_z[t],
     );
 
-    // Perform scalar mul on m and add the result to g
+    /// Perform scalar mul on m and add the result to g.
     let s = buckets_per_thread * (num_threads - thread_id - 1u);
     g = add_points(g, double_and_add(m, s));
 

@@ -1,8 +1,6 @@
 import { BigIntPoint, U32ArrayPoint } from "../../reference/types";
-import {
-  bigints_to_u8_for_gpu,
-  bigints_to_16_bit_words_for_gpu,
-} from "../implementation/cuzk/utils";
+import { bigints_to_u8_for_gpu } from "../implementation/cuzk/utils";
+import { bigints_to_16_bit_words_for_gpu } from "../miscellaneous/utils";
 import assert from "assert";
 
 const num_words = 16;
@@ -14,9 +12,9 @@ export const convert_bigints_to_bytes_benchmark = async (
 ): Promise<{ x: bigint; y: bigint }> => {
   //let code = ''
   //for (let i = 0; i < 16; i ++) {
-    ////code += `    shift = BigInt(${(15 - i) * 16})\n`
-    //code += `    result[i * 64 + ${(15 - i) * 4}] = Number((val >> BigInt(${(15 - i) * 16})) & mask)\n`
-    //code += `    result[i * 64 + ${(15 - i) * 4 + 1}] = Number((val >> (BigInt(${(15 - i) * 16 + 8}))) & mask)\n\n`
+  ////code += `    shift = BigInt(${(15 - i) * 16})\n`
+  //code += `    result[i * 64 + ${(15 - i) * 4}] = Number((val >> BigInt(${(15 - i) * 16})) & mask)\n`
+  //code += `    result[i * 64 + ${(15 - i) * 4 + 1}] = Number((val >> (BigInt(${(15 - i) * 16 + 8}))) & mask)\n\n`
   //}
   //console.log(code)
 
@@ -28,7 +26,9 @@ export const convert_bigints_to_bytes_benchmark = async (
   );
 
   const start_1 = Date.now();
-  const x_y_coords_bytes_2 = bigints_to_16_bit_words_for_gpu(scalars as bigint[]);
+  const x_y_coords_bytes_2 = bigints_to_16_bit_words_for_gpu(
+    scalars as bigint[],
+  );
   const elapsed_1 = Date.now() - start_1;
   console.log(
     `bigints_to_16_bit_words_for_gpu took ${elapsed_1}ms to convert ${scalars.length} scalars`,

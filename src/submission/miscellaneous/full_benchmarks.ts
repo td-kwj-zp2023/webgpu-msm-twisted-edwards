@@ -1,5 +1,5 @@
 import { BigIntPoint, U32ArrayPoint } from "../../reference/types";
-import { bigIntsToBufferLE } from '../../reference/webgpu/utils';
+import { bigIntsToBufferLE } from "../../reference/webgpu/utils";
 import { PowersTestCase, loadTestCase } from "../../test-data/testCases";
 import { compute_msm } from "../submission";
 

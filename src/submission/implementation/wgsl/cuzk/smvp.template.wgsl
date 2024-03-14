@@ -4,7 +4,7 @@
 {{> bigint_funcs }}
 {{> ec_funcs }}
 
-// Input buffers
+/// Input storage buffers.
 @group(0) @binding(0)
 var<storage, read> row_ptr: array<u32>;
 @group(0) @binding(1)
@@ -14,7 +14,7 @@ var<storage, read> new_point_x: array<BigInt>;
 @group(0) @binding(3)
 var<storage, read> new_point_y: array<BigInt>;
 
-// Output buffers
+/// Output storage buffers.
 @group(0) @binding(4)
 var<storage, read_write> bucket_x: array<BigInt>;
 @group(0) @binding(5)
@@ -24,7 +24,7 @@ var<storage, read_write> bucket_t: array<BigInt>;
 @group(0) @binding(7)
 var<storage, read_write> bucket_z: array<BigInt>;
 
-// Params buffer
+/// Uniform storage buffer.
 @group(0) @binding(8)
 var<uniform> params: vec4<u32>;
 
@@ -42,27 +42,8 @@ fn get_paf() -> Point {
     return result;
 }
 
-// This double-and-add code is adapted from the ZPrize test harness:
-// https://github.com/demox-labs/webgpu-msm/blob/main/src/reference/webgpu/wgsl/Curve.ts#L78
-fn double_and_add(point: Point, scalar: u32) -> Point {
-    // Set result to the point at infinity
-    var result: Point = get_paf();
-
-    var s = scalar;
-    var temp = point;
-
-    while (s != 0u) {
-        if ((s & 1u) == 1u) {
-            result = add_points(result, temp);
-        }
-        temp = double_point(temp);
-        s = s >> 1u;
-    }
-    return result;
-}
-
-// Point negation only involves multiplying the X and T coordinates by -1 in
-// the field
+/// Point negation only involves multiplying the X and T coordinates by -1 in
+/// the field.
 fn negate_point(point: Point) -> Point {
     var p = get_p();
     var x = point.x;
@@ -91,15 +72,14 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let l = num_columns;
     let h = {{ half_num_columns }}u;
 
-    // Define custom subtask_idx
+    /// Define custom subtask_idx.
     let subtask_idx = (id / h);
 
     var inf = get_paf();
 
     let rp_offset = (subtask_idx + subtask_offset) * (num_columns + 1u);
 
-    // As we use the signed bucket index technique, each thread handles two
-    // buckets.
+    /// As we use the signed bucket index technique, each thread handles two buckets.
     for (var j = 0u; j < 2u; j ++) {
         var row_idx = (id % h) + h;
         if (j == 1u) {
@@ -113,17 +93,17 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         let row_end = row_ptr[rp_offset + row_idx + 1u];
         var sum = inf;
 
-        // Add up all the points in the bucket
+        /// Add up all the points in the bucket.
         for (var k = row_begin; k < row_end; k ++) {
             let idx = val_idx[(subtask_idx + subtask_offset) * input_size + k];
 
             var x = new_point_x[idx];
             var y = new_point_y[idx];
 
-            // We didn't compute the t and z coordiantes in the previous shader
-            // because there is a limit to the number of buffers that may be
-            // bound to a shader, so we do so here. Fortunately the computation
-            // is relatively simple: t = xyr and z = 1r.
+            /// We didn't compute the t and z coordiantes in the previous shader
+            /// because there is a limit to the number of buffers that may be
+            /// bound to a shader, so we do so here. Fortunately the computation
+            /// is relatively simple: t = xyr and z = 1r.
             var t = montgomery_product(&x, &y);
             var z = get_r();
 
@@ -131,11 +111,11 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
             sum = add_points(sum, pt);
         }
 
-        // Negate the point if the recovered bucket index is negative.
-        // Since we've added half_num_columns to each scalar chunk in
-        // convert_point_coords_and_decompose_scalars.template.wgsl, we know if
-        // the original bucket index is negative if it is less than
-        // half_num_columns.
+        /// Negate the point if the recovered bucket index is negative.
+        /// Since we've added half_num_columns to each scalar chunk in
+        /// convert_point_coords_and_decompose_scalars.template.wgsl, we know if
+        /// the original bucket index is negative if it is less than
+        /// half_num_columns.
         var bucket_idx = 0u;
         if (h > row_idx) {
             bucket_idx = h - row_idx;
@@ -146,11 +126,10 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
         let bi = id + subtask_offset * h;
         if (bucket_idx > 0u) {
-            // Store the result in buckets[thread_id]. Each thread must use
-            // a unique storage location (thread_id) to prevent race
-            // conditions.
+            /// Store the result in buckets[thread_id]. Each thread must use
+            /// a unique storage location (thread_id) to prevent race conditions.
             if (j == 1) {
-                // Since the point has been set, add to it.
+                /// Since the point has been set, add to it.
                 let bucket = Point(
                     bucket_x[bi],
                     bucket_y[bi],
@@ -160,8 +139,8 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
                 sum = add_points(bucket, sum);
             }
 
-            // Set the point. Since no point has been set when j == 0, we can just
-            // overwrite the data.
+            /// Set the point. Since no point has been set when j == 0, we can just
+            /// overwrite the data.
             bucket_x[bi] = sum.x;
             bucket_y[bi] = sum.y;
             bucket_z[bi] = sum.z;

@@ -8,7 +8,6 @@ import {
   u8s_to_points,
   points_to_u8s_for_gpu,
   numbers_to_u8s_for_gpu,
-  decompose_scalars,
   bigIntPointToExtPointType,
   u8s_to_numbers,
   compute_misc_params,
@@ -22,6 +21,7 @@ import ec_funcs from "../../implementation/wgsl/curve/ec.template.wgsl";
 import montgomery_product_funcs from "../../implementation/wgsl/montgomery/mont_pro_product.template.wgsl";
 import create_csr_shader from "../wgsl/create_csr.template.wgsl";
 import { all_precomputation, create_csr_cpu } from "./create_csr";
+import { decompose_scalars } from "../utils";
 
 const fieldMath = new FieldMath();
 
@@ -370,7 +370,11 @@ export async function create_csr_precomputation_benchmark(
   const word_size = 16;
 
   const start_decomposed = Date.now();
-  const decomposed_scalars = decompose_scalars(scalars as bigint[], num_words, word_size);
+  const decomposed_scalars = decompose_scalars(
+    scalars as bigint[],
+    num_words,
+    word_size,
+  );
   const elapsed_decomposed = Date.now() - start_decomposed;
   console.log(`CPU took ${elapsed_decomposed}ms to decompose scalars`);
 
