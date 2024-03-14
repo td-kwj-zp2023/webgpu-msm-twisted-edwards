@@ -2,7 +2,7 @@
 /// with signed bucket indices in typescript. It leverages the
 /// `FieldMath` utility for mathematical operations on extended points.
 
-import { FieldMath } from "../../../reference/utils/FieldMath";
+import { FieldMath } from "../../reference/utils/FieldMath";
 import { ExtPointType } from "@noble/curves/abstract/edwards";
 
 export const cpu_smvp = (
@@ -56,7 +56,7 @@ export const cpu_smvp_signed = (
   const rp_offset = subtask_idx * (num_columns + 1);
 
   // In a GPU implementation, each iteration of this loop should be performed by a thread.
-  // Each thread handles two buckets
+  // Each thread handles two buckets.
   for (let thread_id = 0; thread_id < num_columns / 2; thread_id++) {
     for (let j = 0; j < 2; j++) {
       // row_idx is the index of the row in the CSR matrix. It is *not*
@@ -67,7 +67,7 @@ export const cpu_smvp_signed = (
       }
 
       if (thread_id === 0 && j === 0) {
-        row_idx = 0
+        row_idx = 0;
       }
 
       const row_begin = all_csc_col_ptr[rp_offset + row_idx];

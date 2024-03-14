@@ -1,9 +1,13 @@
-/// A helper class which allows our end-to-end cuzk implementation to generate all
-/// the shaders it needs easily. It precomputes all the necessary variables (such as
-// the Montgomery radix) which depend on the word size.
+/*
+ * Module Name: Shader manager
+ *
+ * Description:
+ * A helper class which allows our end-to-end cuzk implementation to generate all
+ * the WGSL shaders it needs easily. It precomputes all the necessary variables (such as
+ * the Montgomery radix) which depend on the word size.
+ */
 
 import mustache from "mustache";
-
 import convert_point_coords_and_decompose_scalars from "../wgsl/cuzk/convert_point_coords_and_decompose_scalars.template.wgsl";
 import extract_word_from_bytes_le_funcs from "../wgsl/cuzk/extract_word_from_bytes_le.template.wgsl";
 import structs from "../wgsl/struct/structs.template.wgsl";
@@ -14,9 +18,7 @@ import barrett_funcs from "../wgsl/cuzk/barrett.template.wgsl";
 import montgomery_product_funcs from "../wgsl/montgomery/mont_pro_product.template.wgsl";
 import transpose_serial_shader from "../wgsl/cuzk/transpose.wgsl";
 import smvp_shader from "../wgsl/cuzk/smvp.template.wgsl";
-import bpr_shader from '../wgsl/cuzk/bpr.template.wgsl'
-import bucket_points_reduction_shader from "../wgsl/cuzk/bucket_points_reduction.template.wgsl";
-
+import bpr_shader from "../wgsl/cuzk/bpr.template.wgsl";
 import {
   compute_misc_params,
   gen_p_limbs,
@@ -24,14 +26,14 @@ import {
   gen_d_limbs,
   gen_mu_limbs,
 } from "./utils";
+import { p } from "./params";
 
-// A helper class which allows cuzk_gpu() to generate all the shaders it needs
-// easily. It precomputes all the necessary variables (such as the Montgomery
-// radix) which depend on the word size.
+/**
+ * A helper class which allows cuzk to generate all the shaders it needs
+ * easily. It precomputes all the necessary variables (such as the Montgomery
+ * radix) which depend on the word size.
+ */
 export class ShaderManager {
-  public p = BigInt(
-    "8444461749428370424248824938781546531375899335154063827935233455917409239041",
-  );
   public word_size: number;
   public chunk_size: number;
   public input_size: number;
@@ -54,12 +56,12 @@ export class ShaderManager {
   public recompile = "";
 
   constructor(
+    params: any,
     word_size: number,
     chunk_size: number,
     input_size: number,
     force_recompile = false,
   ) {
-    const params = compute_misc_params(this.p, word_size);
     this.word_size = word_size;
     this.chunk_size = chunk_size;
     this.input_size = input_size;
@@ -72,11 +74,11 @@ export class ShaderManager {
     this.index_shift = 2 ** (chunk_size - 1);
     this.two_pow_word_size = 2 ** word_size;
     this.two_pow_chunk_size = 2 ** chunk_size;
-    this.p_limbs = gen_p_limbs(this.p, this.num_words, word_size);
+    this.p_limbs = gen_p_limbs(p, this.num_words, word_size);
     this.r_limbs = gen_r_limbs(this.r, this.num_words, word_size);
     this.d_limbs = gen_d_limbs(this.d, this.num_words, word_size);
-    this.mu_limbs = gen_mu_limbs(this.p, this.num_words, word_size);
-    this.p_bitlength = this.p.toString(2).length;
+    this.mu_limbs = gen_mu_limbs(p, this.num_words, word_size);
+    this.p_bitlength = p.toString(2).length;
     this.slack = this.num_words * word_size - this.p_bitlength;
     this.w_mask = (1 << word_size) - 1;
 
@@ -89,6 +91,7 @@ export class ShaderManager {
     }
   }
 
+  /// Generate convert points and scalar decomposition shader.
   public gen_convert_points_and_decomp_scalars_shader(
     workgroup_size: number,
     num_y_workgroups: number,
@@ -133,6 +136,7 @@ export class ShaderManager {
     return shaderCode;
   }
 
+  /// Generate sparse matrix transposition shader.
   public gen_transpose_shader(workgroup_size: number) {
     const shaderCode = mustache.render(
       transpose_serial_shader,
@@ -145,6 +149,7 @@ export class ShaderManager {
     return shaderCode;
   }
 
+  /// Generate sparse matrix vector multiplication shader.
   public gen_smvp_shader(workgroup_size: number, num_csr_cols: number) {
     const shaderCode = mustache.render(
       smvp_shader,
@@ -174,9 +179,8 @@ export class ShaderManager {
     return shaderCode;
   }
 
-  public gen_bpr_shader(
-    workgroup_size: number,
-  ) {
+  /// Generate bucket point reduction shader.
+  public gen_bpr_shader(workgroup_size: number) {
     const shaderCode = mustache.render(
       bpr_shader,
       {
@@ -202,33 +206,5 @@ export class ShaderManager {
     );
     return shaderCode;
   }
-
-  public gen_bucket_reduction_shader() {
-    // Important: workgroup_size should be constant regardless of the number of
-    // points, as setting a different workgroup_size will cause a costly
-    // recompile. This constant is only passed into the shader as a template
-    // variable for ease of benchmarking.
-    const shaderCode = mustache.render(
-      bucket_points_reduction_shader,
-      {
-        word_size: this.word_size,
-        num_words: this.num_words,
-        n0: this.n0,
-        p_limbs: this.p_limbs,
-        r_limbs: this.r_limbs,
-        d_limbs: this.d_limbs,
-        mask: this.mask,
-        two_pow_word_size: this.two_pow_word_size,
-        recompile: this.recompile,
-      },
-      {
-        structs,
-        bigint_funcs,
-        field_funcs,
-        ec_funcs,
-        montgomery_product_funcs,
-      },
-    );
-    return shaderCode;
-  }
 }
+export { compute_misc_params };

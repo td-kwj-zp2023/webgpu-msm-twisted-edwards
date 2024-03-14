@@ -1,7 +1,5 @@
-import {
-  to_words_le,
-  genRandomFieldElement,
-} from "../../implementation/cuzk/utils";
+import { to_words_le } from "../../implementation/cuzk/utils";
+import { genRandomFieldElement } from "../../miscellaneous/utils";
 
 const to_signed_slices = (
   scalar: bigint,

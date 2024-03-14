@@ -2,10 +2,10 @@ import {
   to_words_le,
   from_words_le,
   compute_misc_params,
-  bigints_to_16_bit_words_for_gpu,
   bigints_to_u8_for_gpu,
 } from "../../implementation/cuzk/utils";
 import * as bigintCryptoUtils from "bigint-crypto-utils";
+import { bigints_to_16_bit_words_for_gpu } from "../utils";
 
 describe("utils", () => {
   const p = BigInt(

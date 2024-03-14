@@ -1,35 +1,23 @@
-/// This module provides various utility functions for cryptographic operations.
+/*
+ * Module Name: Utilities
+ *
+ * Description:
+ * This module provides various utility functions for cryptographic operations.
+ */
 
 import assert from "assert";
-import crypto from "crypto";
 import * as bigintCryptoUtils from "bigint-crypto-utils";
 import { BigIntPoint } from "../../../reference/types";
 import { FieldMath } from "../../../reference/utils/FieldMath";
 import { ExtPointType } from "@noble/curves/abstract/edwards";
 import { EDWARDS_D } from "../../../reference/params/AleoConstants";
 
-/*
- * Converts the BigInts in vals to byte arrays in the form of
- * [b0, b1, 0, 0, b2, b3, 0, 0, ...]
- * This is slower than bigints_to_u8_for_gpu, so don't use it
+/**
+ * Converts a BigIntPoint to an ExtPointType using field arithmetic.
+ * @param {BigIntPoint} bip - A point with bigint coordinates.
+ * @param {FieldMath} fieldMath - The field arithmetic utility.
+ * @returns {ExtPointType} A point in the extended format.
  */
-export const bigints_to_16_bit_words_for_gpu = (vals: bigint[]): Uint8Array => {
-  const result = new Uint8Array(64 * vals.length);
-  for (let i = 0; i < vals.length; i++) {
-    // This code snippet is adapted from
-    // https://github.com/no2chem/bigint-buffer/blob/master/src/index.ts#L60
-    const hex = vals[i].toString(16);
-    const buf = Buffer.from(hex.padStart(128, "0").slice(0, 128), "hex");
-    buf.reverse();
-
-    for (let j = 0; j < buf.length; j += 2) {
-      result[i * 64 + j * 2] = buf[j];
-      result[i * 64 + j * 2 + 1] = buf[j + 1];
-    }
-  }
-  return result;
-};
-
 export const bigIntPointToExtPointType = (
   bip: BigIntPoint,
   fieldMath: FieldMath,
@@ -37,83 +25,22 @@ export const bigIntPointToExtPointType = (
   return fieldMath.createPoint(bip.x, bip.y, bip.t, bip.z);
 };
 
+/**
+ * Converts an ExtPointType to a BigIntPoint.
+ * @param {ExtPointType} ept - A point in the extended format.
+ * @returns {BigIntPoint} A point with bigint coordinates.
+ */
 export const extPointTypeToBigIntPoint = (ept: ExtPointType): BigIntPoint => {
   return { x: ept.ex, y: ept.ey, t: ept.et, z: ept.ez };
 };
 
 /**
- * e.g. if the scalars converted to limbs = [
- *          [limb_a, limb_b],
- *          [limb_c, limb_d]
- *      ]
- *      return: [
- *          [limb_a, limb_c],
- *          [limb_b, limb_d]
- *      ]
+ * Converts an array of BigIntPoints to a Uint8Array for GPU processing.
+ * @param {BigIntPoint[]} points - An array of points with bigint coordinates.
+ * @param {number} num_words - The number of words per bigint.
+ * @param {number} word_size - The size of each word in bits.
+ * @returns {Uint8Array} The resulting byte array for GPU use.
  */
-export const decompose_scalars = (
-  scalars: bigint[],
-  num_words: number,
-  word_size: number,
-): number[][] => {
-  const as_limbs: number[][] = [];
-  for (const scalar of scalars) {
-    const limbs = to_words_le(scalar, num_words, word_size);
-    as_limbs.push(Array.from(limbs));
-  }
-  const result: number[][] = [];
-  for (let i = 0; i < num_words; i++) {
-    const t = as_limbs.map((limbs) => limbs[i]);
-    result.push(t);
-  }
-  return result;
-};
-
-export const decompose_scalars_signed = (
-  scalars: bigint[],
-  num_words: number,
-  word_size: number,
-): number[][] => {
-  const l = 2 ** word_size;
-  const shift = 2 ** (word_size - 1);
-
-  const as_limbs: number[][] = [];
-
-  for (const scalar of scalars) {
-    const limbs = to_words_le(scalar, num_words, word_size);
-    const signed_slices: number[] = Array(limbs.length).fill(0);
-
-    let carry = 0;
-    for (let i = 0; i < limbs.length; i++) {
-      signed_slices[i] = limbs[i] + carry;
-      if (signed_slices[i] >= l / 2) {
-        signed_slices[i] = (l - signed_slices[i]) * -1;
-        if (signed_slices[i] === -0) {
-          signed_slices[i] = 0;
-        }
-
-        carry = 1;
-      } else {
-        carry = 0;
-      }
-    }
-
-    if (carry === 1) {
-      console.error(scalar);
-      throw new Error("final carry is 1");
-    }
-
-    as_limbs.push(Array.from(signed_slices).map((x) => x + shift));
-  }
-
-  const result: number[][] = [];
-  for (let i = 0; i < num_words; i++) {
-    const t = as_limbs.map((limbs) => limbs[i]);
-    result.push(t);
-  }
-  return result;
-};
-
 export const points_to_u8s_for_gpu = (
   points: BigIntPoint[],
   num_words: number,
@@ -140,12 +67,19 @@ export const points_to_u8s_for_gpu = (
   return result;
 };
 
+/**
+ * Converts a Uint8Array back into an array of BigIntPoints.
+ * @param {Uint8Array} bytes - The byte array representing points.
+ * @param {number} num_words - The number of words per bigint.
+ * @param {number} word_size - The size of each word in bits.
+ * @returns {BigIntPoint[]} An array of reconstructed points with bigint coordinates.
+ */
 export const u8s_to_points = (
   bytes: Uint8Array,
   num_words: number,
   word_size: number,
 ): BigIntPoint[] => {
-  // Since each limb is a u32, there are 4 u8s per limb
+  /// Since each limb is a u32, there are 4 u8s per limb.
   const num_u8s_per_coord = num_words * 4;
   const num_u8s_per_point = num_u8s_per_coord * 4;
 
@@ -174,6 +108,13 @@ export const u8s_to_points = (
   return result;
 };
 
+/**
+ * Converts a Uint8Array to an array of bigints, interpreting each segment as a separate bigint.
+ * @param {Uint8Array} u8s - The byte array to convert.
+ * @param {number} num_words - The number of words per bigint.
+ * @param {number} word_size - The size of each word in bits.
+ * @returns {bigint[]} An array of bigints.
+ */
 export const u8s_to_bigints = (
   u8s: Uint8Array,
   num_words: number,
@@ -189,6 +130,13 @@ export const u8s_to_bigints = (
   return result;
 };
 
+/**
+ * Converts a Uint8Array to a single bigint.
+ * @param {Uint8Array} u8s - The byte array to convert.
+ * @param {number} num_words - The number of words per bigint.
+ * @param {number} word_size - The size of each word in bits.
+ * @returns {bigint} The reconstructed bigint.
+ */
 export const u8s_to_bigint = (
   u8s: Uint8Array,
   num_words: number,
@@ -203,8 +151,42 @@ export const u8s_to_bigint = (
   return from_words_le(new Uint16Array(limbs), num_words, word_size);
 };
 
+/**
+ * Converts an array of numbers to a Uint8Array for GPU processing without assertion checks.
+ * @param {number[]} vals - An array of numbers to convert.
+ * @returns {Uint8Array} The resulting byte array for GPU use.
+ */
+export const u8s_to_bigints_without_assertion = (
+  u8s: Uint8Array,
+  num_words: number,
+  word_size: number,
+): bigint[] => {
+  const num_u8s_per_scalar = num_words * 4;
+  const result = [];
+  for (let i = 0; i < u8s.length / num_u8s_per_scalar; i++) {
+    const p = i * num_u8s_per_scalar;
+    const s = u8s.slice(p, p + num_u8s_per_scalar);
+    result.push(u8s_to_bigint_without_assertion(s, num_words, word_size));
+  }
+  return result;
+};
+
+export const u8s_to_bigint_without_assertion = (
+  u8s: Uint8Array,
+  num_words: number,
+  word_size: number,
+): bigint => {
+  const a = new Uint16Array(u8s.buffer);
+  const limbs: number[] = [];
+  for (let i = 0; i < a.length; i += 2) {
+    limbs.push(a[i]);
+  }
+
+  return from_words_le_without_assertion(new Uint16Array(limbs), num_words, word_size);
+};
+
 export const numbers_to_u8s_for_gpu = (vals: number[]): Uint8Array => {
-  // Expect each val to be max 32 bits
+  /// Expect each val to be max 32 bits.
   const max = 2 ** 32;
   for (const val of vals) {
     assert(val < max);
@@ -213,6 +195,11 @@ export const numbers_to_u8s_for_gpu = (vals: number[]): Uint8Array => {
   return new Uint8Array(b.buffer);
 };
 
+/**
+ * Converts a Uint8Array to an array of numbers, assuming each number occupies 16 bits.
+ * @param {Uint8Array} u8s - The byte array to convert.
+ * @returns {number[]} An array of reconstructed numbers.
+ */
 export const u8s_to_numbers = (u8s: Uint8Array): number[] => {
   const result: number[] = [];
   assert(u8s.length % 4 === 0);
@@ -224,6 +211,11 @@ export const u8s_to_numbers = (u8s: Uint8Array): number[] => {
   return result;
 };
 
+/**
+ * Converts a Uint8Array to an array of 32-bit numbers.
+ * @param {Uint8Array} u8s - The byte array to convert.
+ * @returns {number[]} An array of reconstructed 32-bit numbers.
+ */
 export const u8s_to_numbers_32 = (u8s: Uint8Array): number[] => {
   const result: number[] = [];
   assert(u8s.length % 4 === 0);
@@ -237,6 +229,13 @@ export const u8s_to_numbers_32 = (u8s: Uint8Array): number[] => {
   return result;
 };
 
+/**
+ * Converts an array of bigints to a Uint8Array for GPU processing (old version).
+ * @param {bigint[]} vals - An array of bigints to convert.
+ * @param {number} num_words - The number of words per bigint.
+ * @param {number} word_size - The size of each word in bits.
+ * @returns {Uint8Array} The resulting byte array for GPU use.
+ */
 export const bigints_to_u8_for_gpu_old = (
   vals: bigint[],
   num_words: number,
@@ -255,77 +254,61 @@ export const bigints_to_u8_for_gpu_old = (
   return result;
 };
 
-// Assumes 32-byte BigInts
-export const bigints_to_u8_for_gpu = (
-  vals: bigint[],
-): Uint8Array => {
+/**
+ * Converts an array of 32-byte bigints to a Uint8Array for GPU processing.
+ * @param {bigint[]} vals - An array of bigints to convert.
+ * @returns {Uint8Array} The resulting byte array for GPU use.
+ */
+export const bigints_to_u8_for_gpu = (vals: bigint[]): Uint8Array => {
   const result = new Uint8Array(vals.length * 64);
-  const mask = BigInt(255)
-  //const eight = BigInt(8)
+  const mask = BigInt(255);
 
   for (let i = 0; i < vals.length; i++) {
-    const val = vals[i]
-
-    //for (let j = 0; j < 16; j ++) {
-      //const shift = BigInt((15 - j) * 16)
-      //const a = (val >> shift) & mask
-      //const b = (val >> (shift + eight)) & mask
-      //result[i * 64 + (15 - j) * 4] = Number(a)
-      //result[i * 64 + (15 - j) * 4 + 1] = Number(b)
-    //}
- 
-    result[i * 64 + 60] = Number((val >> BigInt(240)) & mask)
-    result[i * 64 + 61] = Number((val >> (BigInt(248))) & mask)
-
-    result[i * 64 + 56] = Number((val >> BigInt(224)) & mask)
-    result[i * 64 + 57] = Number((val >> (BigInt(232))) & mask)
-
-    result[i * 64 + 52] = Number((val >> BigInt(208)) & mask)
-    result[i * 64 + 53] = Number((val >> (BigInt(216))) & mask)
-
-    result[i * 64 + 48] = Number((val >> BigInt(192)) & mask)
-    result[i * 64 + 49] = Number((val >> (BigInt(200))) & mask)
-
-    result[i * 64 + 44] = Number((val >> BigInt(176)) & mask)
-    result[i * 64 + 45] = Number((val >> (BigInt(184))) & mask)
-
-    result[i * 64 + 40] = Number((val >> BigInt(160)) & mask)
-    result[i * 64 + 41] = Number((val >> (BigInt(168))) & mask)
-
-    result[i * 64 + 36] = Number((val >> BigInt(144)) & mask)
-    result[i * 64 + 37] = Number((val >> (BigInt(152))) & mask)
-
-    result[i * 64 + 32] = Number((val >> BigInt(128)) & mask)
-    result[i * 64 + 33] = Number((val >> (BigInt(136))) & mask)
-
-    result[i * 64 + 28] = Number((val >> BigInt(112)) & mask)
-    result[i * 64 + 29] = Number((val >> (BigInt(120))) & mask)
-
-    result[i * 64 + 24] = Number((val >> BigInt(96)) & mask)
-    result[i * 64 + 25] = Number((val >> (BigInt(104))) & mask)
-
-    result[i * 64 + 20] = Number((val >> BigInt(80)) & mask)
-    result[i * 64 + 21] = Number((val >> (BigInt(88))) & mask)
-
-    result[i * 64 + 16] = Number((val >> BigInt(64)) & mask)
-    result[i * 64 + 17] = Number((val >> (BigInt(72))) & mask)
-
-    result[i * 64 + 12] = Number((val >> BigInt(48)) & mask)
-    result[i * 64 + 13] = Number((val >> (BigInt(56))) & mask)
-
-    result[i * 64 + 8] = Number((val >> BigInt(32)) & mask)
-    result[i * 64 + 9] = Number((val >> (BigInt(40))) & mask)
-
-    result[i * 64 + 4] = Number((val >> BigInt(16)) & mask)
-    result[i * 64 + 5] = Number((val >> (BigInt(24))) & mask)
-
-    result[i * 64 + 0] = Number((val >> BigInt(0)) & mask)
-    result[i * 64 + 1] = Number((val >> (BigInt(8))) & mask)
+    const val = vals[i];
+    result[i * 64 + 60] = Number((val >> BigInt(240)) & mask);
+    result[i * 64 + 61] = Number((val >> BigInt(248)) & mask);
+    result[i * 64 + 56] = Number((val >> BigInt(224)) & mask);
+    result[i * 64 + 57] = Number((val >> BigInt(232)) & mask);
+    result[i * 64 + 52] = Number((val >> BigInt(208)) & mask);
+    result[i * 64 + 53] = Number((val >> BigInt(216)) & mask);
+    result[i * 64 + 48] = Number((val >> BigInt(192)) & mask);
+    result[i * 64 + 49] = Number((val >> BigInt(200)) & mask);
+    result[i * 64 + 44] = Number((val >> BigInt(176)) & mask);
+    result[i * 64 + 45] = Number((val >> BigInt(184)) & mask);
+    result[i * 64 + 40] = Number((val >> BigInt(160)) & mask);
+    result[i * 64 + 41] = Number((val >> BigInt(168)) & mask);
+    result[i * 64 + 36] = Number((val >> BigInt(144)) & mask);
+    result[i * 64 + 37] = Number((val >> BigInt(152)) & mask);
+    result[i * 64 + 32] = Number((val >> BigInt(128)) & mask);
+    result[i * 64 + 33] = Number((val >> BigInt(136)) & mask);
+    result[i * 64 + 28] = Number((val >> BigInt(112)) & mask);
+    result[i * 64 + 29] = Number((val >> BigInt(120)) & mask);
+    result[i * 64 + 24] = Number((val >> BigInt(96)) & mask);
+    result[i * 64 + 25] = Number((val >> BigInt(104)) & mask);
+    result[i * 64 + 20] = Number((val >> BigInt(80)) & mask);
+    result[i * 64 + 21] = Number((val >> BigInt(88)) & mask);
+    result[i * 64 + 16] = Number((val >> BigInt(64)) & mask);
+    result[i * 64 + 17] = Number((val >> BigInt(72)) & mask);
+    result[i * 64 + 12] = Number((val >> BigInt(48)) & mask);
+    result[i * 64 + 13] = Number((val >> BigInt(56)) & mask);
+    result[i * 64 + 8] = Number((val >> BigInt(32)) & mask);
+    result[i * 64 + 9] = Number((val >> BigInt(40)) & mask);
+    result[i * 64 + 4] = Number((val >> BigInt(16)) & mask);
+    result[i * 64 + 5] = Number((val >> BigInt(24)) & mask);
+    result[i * 64 + 0] = Number((val >> BigInt(0)) & mask);
+    result[i * 64 + 1] = Number((val >> BigInt(8)) & mask);
   }
 
   return result;
 };
 
+/**
+ * Converts a single bigint to a Uint8Array for GPU processing, breaking it down into words.
+ * @param {bigint} val - The bigint to convert.
+ * @param {number} num_words - The number of words per bigint.
+ * @param {number} word_size - The size of each word in bits.
+ * @returns {Uint8Array} The resulting byte array for GPU use.
+ */
 export const bigint_to_u8_for_gpu = (
   val: bigint,
   num_words: number,
@@ -342,6 +325,14 @@ export const bigint_to_u8_for_gpu = (
   return result;
 };
 
+/**
+ * Generates WGSL code to initialize a variable with bigint limbs.
+ * @param {bigint} val - The bigint value to convert into limbs.
+ * @param {string} var_name - The name of the WGSL variable to initialize.
+ * @param {number} num_words - The number of words per bigint.
+ * @param {number} word_size - The size of each word in bits.
+ * @returns {string} The generated WGSL code snippet.
+ */
 export const gen_wgsl_limbs_code = (
   val: bigint,
   var_name: string,
@@ -356,6 +347,13 @@ export const gen_wgsl_limbs_code = (
   return r;
 };
 
+/**
+ * Generates WGSL code to initialize the Barrett-Domb 'm' parameter.
+ * @param {bigint} m - The 'm' parameter value.
+ * @param {number} num_words - The number of words for bigint representation.
+ * @param {number} word_size - The size of each word in bits.
+ * @returns {string} WGSL code for initializing the 'm' parameter.
+ */
 export const gen_barrett_domb_m_limbs = (
   m: bigint,
   num_words: number,
@@ -364,6 +362,13 @@ export const gen_barrett_domb_m_limbs = (
   return gen_wgsl_limbs_code(m, "m", num_words, word_size);
 };
 
+/**
+ * Generates WGSL code for initializing the prime modulus 'p' with its limbs.
+ * @param {bigint} p - The prime modulus.
+ * @param {number} num_words - The number of words for bigint representation.
+ * @param {number} word_size - The size of each word in bits.
+ * @returns {string} WGSL code for initializing 'p'.
+ */
 export const gen_p_limbs = (
   p: bigint,
   num_words: number,
@@ -372,6 +377,13 @@ export const gen_p_limbs = (
   return gen_wgsl_limbs_code(p, "p", num_words, word_size);
 };
 
+/**
+ * Generates WGSL code for initializing the Montgomery radix 'r' with its limbs.
+ * @param {bigint} r - The Montgomery radix.
+ * @param {number} num_words - The number of words for bigint representation.
+ * @param {number} word_size - The size of each word in bits.
+ * @returns {string} WGSL code for initializing 'r'.
+ */
 export const gen_r_limbs = (
   r: bigint,
   num_words: number,
@@ -380,6 +392,13 @@ export const gen_r_limbs = (
   return gen_wgsl_limbs_code(r, "r", num_words, word_size);
 };
 
+/**
+ * Generates WGSL code for initializing the curve constant 'd' with its limbs.
+ * @param {bigint} d - The curve constant 'd'.
+ * @param {number} num_words - The number of words for bigint representation.
+ * @param {number} word_size - The size of each word in bits.
+ * @returns {string} WGSL code for initializing 'd'.
+ */
 export const gen_d_limbs = (
   d: bigint,
   num_words: number,
@@ -388,14 +407,20 @@ export const gen_d_limbs = (
   return gen_wgsl_limbs_code(d, "d", num_words, word_size);
 };
 
+/**
+ * Generates WGSL code for initializing the Barrett reduction parameter 'mu' with its limbs.
+ * @param {bigint} p - The prime modulus used to compute 'mu'.
+ * @param {number} num_words - The number of words for bigint representation.
+ * @param {number} word_size - The size of each word in bits.
+ * @returns {string} WGSL code for initializing 'mu'.
+ */
 export const gen_mu_limbs = (
   p: bigint,
   num_words: number,
   word_size: number,
 ): string => {
-  // precompute mu
-  // choose x such that x is the smallest 2 ** x > s
-  // https://www.nayuki.io/page/barrett-reduction-algorithm
+  /// precompute mu by choosing x such that x is the smallest 2 ** x > s
+  /// https://www.nayuki.io/page/barrett-reduction-algorithm.
   let x = BigInt(1);
   while (BigInt(2) ** x < p) {
     x += BigInt(1);
@@ -405,6 +430,13 @@ export const gen_mu_limbs = (
   return gen_wgsl_limbs_code(mu, "mu", num_words, word_size);
 };
 
+/**
+ * Converts a bigint into an array of 16-bit words in little-endian format.
+ * @param {bigint} val - The bigint to convert.
+ * @param {number} num_words - The number of words.
+ * @param {number} word_size - The size of each word in bits.
+ * @returns {Uint16Array} The array of 16-bit words.
+ */
 export const to_words_le = (
   val: bigint,
   num_words: number,
@@ -421,6 +453,28 @@ export const to_words_le = (
   }
 
   return words;
+};
+
+/**
+ * Constructs a bigint from an array of 16-bit words in little-endian format without assertion checks.
+ * @param {Uint16Array} words - The array of 16-bit words.
+ * @param {number} num_words - The number of words.
+ * @param {number} word_size - The size of each word in bits.
+ * @returns {bigint} The reconstructed bigint.
+ */
+export const from_words_le_without_assertion = (
+  words: Uint16Array,
+  num_words: number,
+  word_size: number,
+): bigint => {
+  let val = BigInt(0);
+  for (let i = 0; i < num_words; i++) {
+    val +=
+      BigInt(2) ** BigInt((num_words - i - 1) * word_size) *
+      BigInt(words[num_words - 1 - i]);
+  }
+
+  return val;
 };
 
 export const from_words_le = (
@@ -441,6 +495,12 @@ export const from_words_le = (
   return val;
 };
 
+/**
+ * Calculates the number of words needed to represent a bigint of a given bit width.
+ * @param {number} word_size - The size of each word in bits.
+ * @param {number} p_width - The width of the bigint in bits.
+ * @returns {number} The number of words required.
+ */
 export const calc_num_words = (word_size: number, p_width: number): number => {
   let num_words = Math.floor(p_width / word_size);
   while (num_words * word_size < p_width) {
@@ -449,6 +509,12 @@ export const calc_num_words = (word_size: number, p_width: number): number => {
   return num_words;
 };
 
+/**
+ * Computes miscellaneous parameters needed for cryptographic operations.
+ * @param {bigint} p - The prime modulus.
+ * @param {number} word_size - The size of each word in bits.
+ * @returns {Object} An object containing various computed parameters.
+ */
 export const compute_misc_params = (
   p: bigint,
   word_size: number,
@@ -475,12 +541,13 @@ export const compute_misc_params = (
     k += 1;
   }
 
+  /// Number of carry free terms.
   const nsafe = Math.floor(k / 2);
 
-  // The Montgomery radix
+  /// The Montgomery radix.
   const r = BigInt(2) ** BigInt(num_words * word_size);
 
-  // Returns triple (g, rinv, pprime)
+  /// Returns triple (g, rinv, pprime).
   const egcdResult: { g: bigint; x: bigint; y: bigint } =
     bigintCryptoUtils.eGcd(r, p);
   const rinv = egcdResult.x;
@@ -499,10 +566,10 @@ export const compute_misc_params = (
   const neg_n_inv = r - pprime;
   const n0 = neg_n_inv % BigInt(2) ** BigInt(word_size);
 
-  // The Barrett-Domb m value
+  /// The Barrett-Domb m value.
   const z = num_words * word_size - p_width;
   const barrett_domb_m = BigInt(2 ** (2 * p_width + z)) / p;
-  //m, _ = divmod(2 ** (2 * n + z), s)  # prime approximation, n + 1 bits
+  /// m, _ = divmod(2 ** (2 * n + z), s) # prime approximation, n + 1 bits.
   const edwards_d = (EDWARDS_D * r) % p;
 
   return {
@@ -516,43 +583,4 @@ export const compute_misc_params = (
     rinv,
     barrett_domb_m,
   };
-};
-
-export const genRandomFieldElement = (p: bigint): bigint => {
-  // Assume that p is < 32 bytes
-  const lim = BigInt(
-    "0x10000000000000000000000000000000000000000000000000000000000000000",
-  );
-  assert(p < lim);
-  const min = (lim - p) % p;
-
-  let rand;
-  while (true) {
-    rand = BigInt("0x" + crypto.randomBytes(32).toString("hex"));
-    if (rand >= min) {
-      break;
-    }
-  }
-
-  return rand % p;
-};
-
-export const are_point_arr_equal = (
-  a: ExtPointType[],
-  b: ExtPointType[],
-): boolean => {
-  if (a.length !== b.length) {
-    return false;
-  }
-
-  for (let i = 0; i < a.length; i++) {
-    const aa = a[i].toAffine();
-    const ba = b[i].toAffine();
-    if (aa.x !== ba.x || aa.y !== ba.y) {
-      console.log(`mismatch at ${i}`);
-      return false;
-    }
-  }
-
-  return true;
 };
