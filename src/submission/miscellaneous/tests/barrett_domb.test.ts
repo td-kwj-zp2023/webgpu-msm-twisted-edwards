@@ -1,7 +1,4 @@
-import {
-  to_words_le,
-  genRandomFieldElement,
-} from "../../implementation/cuzk/utils";
+import { to_words_le } from "../../implementation/cuzk/utils";
 import {
   calc_m,
   mp_adder,
@@ -16,6 +13,7 @@ import {
   machine_two_digit_add,
   mp_lsb_extra_diagonal,
 } from "../barrett_domb";
+import { genRandomFieldElement } from "../utils";
 
 const p = BigInt(
   "0x12ab655e9a2ca55660b44d1e5c37b00159aa76fed00000010a11800000000001",

@@ -13,9 +13,8 @@ import bigint_funcs from "../implementation/wgsl/bigint/bigint.template.wgsl";
 import field_funcs from "../implementation/wgsl/field/field.template.wgsl";
 import ec_funcs from "../implementation/wgsl/curve/ec.template.wgsl";
 import montgomery_product_funcs from "../implementation/wgsl/montgomery/mont_pro_product.template.wgsl";
-import bucket_points_reduction_shader from "../implementation/wgsl/cuzk/bucket_points_reduction.template.wgsl";
+import bucket_points_reduction_shader from "../miscellaneous/wgsl/bucket_points_reduction.template.wgsl";
 import {
-  are_point_arr_equal,
   compute_misc_params,
   u8s_to_bigints,
   gen_p_limbs,
@@ -23,7 +22,8 @@ import {
   gen_d_limbs,
   bigints_to_u8_for_gpu,
 } from "../implementation/cuzk/utils";
-import { shader_invocation } from "../implementation/cuzk/bucket_points_reduction";
+import { shader_invocation } from "./bucket_points_reduction";
+import { are_point_arr_equal } from "./utils";
 
 export const bucket_points_reduction = async (
   baseAffinePoints: BigIntPoint[] | U32ArrayPoint[] | Buffer,

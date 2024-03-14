@@ -40,7 +40,10 @@ export const smvp_wgsl = async (
 ): Promise<{ x: bigint; y: bigint }> => {
   console.log("Starting WGSL SMVP!");
 
-  const result = await smvp(baseAffinePoints as BigIntPoint[], scalars as bigint[]);
+  const result = await smvp(
+    baseAffinePoints as BigIntPoint[],
+    scalars as bigint[],
+  );
   return result;
 };
 

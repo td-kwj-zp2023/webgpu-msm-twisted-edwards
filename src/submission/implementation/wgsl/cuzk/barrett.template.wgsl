@@ -7,10 +7,6 @@ fn get_mu() -> BigInt {
     return mu;
 }
 
-struct BigIntWide {
-    limbs: array<u32, {{ num_words_mul_two }}>
-}
-
 fn get_p_wide() -> BigIntWide {
     var p: BigIntWide;
 {{{ p_limbs }}}
@@ -27,7 +23,7 @@ fn mul(a: ptr<function, BigInt>, b: ptr<function, BigInt>) -> BigIntWide {
         }   
     }
 
-    // start from 0 and carry the extra over to the next index
+    /// Start from 0 and carry the extra over to the next index.
     for (var i = 0u; i < 2 * NUM_WORDS - 1; i = i + 1u) {
         res.limbs[i+1] += res.limbs[i] >> WORD_SIZE;
         res.limbs[i] = res.limbs[i] & W_MASK;

@@ -13,14 +13,6 @@ const MASK = {{ mask }}u;
 const N0 = {{ n0 }}u;
 const COST = {{ cost }}u;
 
-struct BigIntMediumWide {
-    limbs: array<u32, {{ num_words_plus_one }}>
-}
-
-struct BigIntWide {
-    limbs: array<u32, {{ num_words_mul_two }}>
-}
-
 fn get_p() -> BigInt {
     var p: BigInt;
 {{{ p_limbs }}}
@@ -36,9 +28,9 @@ fn gen_p_medium_wide() -> BigIntMediumWide {
     return m;
 }
 
-// The CIOS method for Montgomery multiplication from Tolga Acar's thesis:
-// High-Speed Algorithms & Architectures For Number-Theoretic Cryptosystems
-// https://www.proquest.com/openview/1018972f191afe55443658b28041c118/1
+/// The CIOS method for Montgomery multiplication from Tolga Acar's thesis:
+/// High-Speed Algorithms & Architectures For Number-Theoretic Cryptosystems
+/// https://www.proquest.com/openview/1018972f191afe55443658b28041c118/1
 fn montgomery_product(a: ptr<function, BigInt>, b: ptr<function, BigInt>) -> BigInt {
     var n = gen_p_medium_wide();
     var n0 = 65535u;
@@ -73,7 +65,7 @@ fn montgomery_product(a: ptr<function, BigInt>, b: ptr<function, BigInt>) -> Big
         t[NUM_WORDS] = t[NUM_WORDS + 1u] + c;
     }
 
-    // Check if t > n. If so, return n - t. Else, return t.
+    /// Check if t > n. If so, return n - t. Else, return t.
     var t_lt_n = false;
     for (var idx = 0u; idx < NUM_WORDS + 1u; idx ++) {
         var i = NUM_WORDS - 1u - idx;

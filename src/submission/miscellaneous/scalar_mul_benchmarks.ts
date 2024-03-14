@@ -15,7 +15,6 @@ import {
   points_to_u8s_for_gpu,
   numbers_to_u8s_for_gpu,
   calc_num_words,
-  are_point_arr_equal,
 } from "../implementation/cuzk/utils";
 import {
   create_sb,
@@ -32,6 +31,7 @@ import field_funcs from "../implementation/wgsl/field/field.template.wgsl";
 import ec_funcs from "../implementation/wgsl/curve/ec.template.wgsl";
 import montgomery_product_funcs from "../implementation/wgsl/montgomery/mont_pro_product.template.wgsl";
 import scalar_mul_shader from "./wgsl/scalar_mul.template.wgsl";
+import { are_point_arr_equal } from "./utils";
 
 const fieldMath = new FieldMath();
 
@@ -72,14 +72,16 @@ export const scalar_mul_benchmarks = async (
   }
 
   // Convert baseAffinePoints to ETE points
-  const points = (baseAffinePoints as BigIntPoint[]).slice(0, num_scalars).map((x) => {
-    return fieldMath.createPoint(
-      x.x,
-      x.y,
-      fieldMath.Fp.mul(x.x, x.y),
-      BigInt(1),
-    );
-  });
+  const points = (baseAffinePoints as BigIntPoint[])
+    .slice(0, num_scalars)
+    .map((x) => {
+      return fieldMath.createPoint(
+        x.x,
+        x.y,
+        fieldMath.Fp.mul(x.x, x.y),
+        BigInt(1),
+      );
+    });
 
   // Benchmark in CPU
   const expected = cpu_benchmark(points, scalars, cost);
