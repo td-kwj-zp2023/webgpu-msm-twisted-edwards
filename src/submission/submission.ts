@@ -35,6 +35,7 @@ import {
   u8s_to_numbers_32,
   from_words_le,
   numbers_to_u8s_for_gpu,
+  u8s_to_bigints_without_assertion,
 } from "./implementation/cuzk/utils";
 import { decompose_scalars_signed } from "./miscellaneous/utils";
 import { cpu_transpose } from "./miscellaneous/transpose";
@@ -354,10 +355,10 @@ export const compute_msm = async (
 
   /// Storage buffer for performing the final accumulation on the CPU.
   const points: ExtPointType[] = [];
-  const g_points_x_mont_coords = u8s_to_bigints(data[0], num_words, word_size);
-  const g_points_y_mont_coords = u8s_to_bigints(data[1], num_words, word_size);
-  const g_points_t_mont_coords = u8s_to_bigints(data[2], num_words, word_size);
-  const g_points_z_mont_coords = u8s_to_bigints(data[3], num_words, word_size);
+  const g_points_x_mont_coords = u8s_to_bigints_without_assertion(data[0], num_words, word_size);
+  const g_points_y_mont_coords = u8s_to_bigints_without_assertion(data[1], num_words, word_size);
+  const g_points_t_mont_coords = u8s_to_bigints_without_assertion(data[2], num_words, word_size);
+  const g_points_z_mont_coords = u8s_to_bigints_without_assertion(data[3], num_words, word_size);
 
   for (let i = 0; i < num_subtasks; i++) {
     let point = fieldMath.customEdwards.ExtendedPoint.ZERO;
