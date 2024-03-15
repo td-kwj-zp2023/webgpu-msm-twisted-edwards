@@ -81,7 +81,9 @@ export const u32ArrayToBigInts = (u32Array: Uint32Array): bigint[] => {
 export const generateRandomFields = (inputSize: number): bigint[] => {
   const randomBigInts = [];
   for (let i = 0; i < inputSize; i++) {
-    randomBigInts.push(createRandomAleoFieldInt());
+    //randomBigInts.push(createRandomAleoFieldInt());
+    const v = BigInt("2796670805570508460920584878396618987767121022598342527208237783066948667246") * BigInt((i + 1) * 35239857293) % ALEO_FIELD_MODULUS;
+    randomBigInts.push(v);
   }
 
   return randomBigInts;

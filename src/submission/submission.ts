@@ -280,15 +280,20 @@ export const compute_msm = async (
   /// followed by a scalar multiplication (Algorithm 4 of the cuZK paper).                    /
   /////////////////////////////////////////////////////////////////////////////////////////////
 
-  const b_num_x_workgroups = 1;
+  /// This is a dynamic variable that determines the number of CSR
+  /// matrices processed per invocation of the BPR shader. A safe default is 1.
+  const num_subtasks_per_bpr = 2;
+
+  const b_num_x_workgroups = num_subtasks_per_bpr;
   const b_num_y_workgroups = 1;
   const b_num_z_workgroups = 1;
   const b_workgroup_size = 256;
-  const b_num_threads = b_num_x_workgroups * b_workgroup_size;
 
   /// Buffers that store the bucket points reduction (BPR) output.
   const g_points_coord_bytelength =
-    num_subtasks * b_num_threads * num_words * 4;
+    //num_subtasks * b_num_threads * num_words * 4;
+    //TODO!!!!! fix below
+    num_subtasks * b_workgroup_size * num_words * 4;
   const g_points_x_sb = create_sb(device, g_points_coord_bytelength);
   const g_points_y_sb = create_sb(device, g_points_coord_bytelength);
   const g_points_t_sb = create_sb(device, g_points_coord_bytelength);
@@ -297,7 +302,7 @@ export const compute_msm = async (
   const bpr_shader = shaderManager.gen_bpr_shader(b_workgroup_size);
 
   /// Stage 1: Bucket points reduction (BPR)
-  for (let subtask_idx = 0; subtask_idx < num_subtasks; subtask_idx++) {
+  for (let subtask_idx = 0; subtask_idx < num_subtasks; subtask_idx += num_subtasks_per_bpr) {
     await bpr_1(
       bpr_shader,
       subtask_idx,
@@ -362,22 +367,22 @@ export const compute_msm = async (
 
   for (let i = 0; i < num_subtasks; i++) {
     let point = fieldMath.customEdwards.ExtendedPoint.ZERO;
-    for (let j = 0; j < b_num_threads; j++) {
+    for (let j = 0; j < b_workgroup_size; j++) {
       const reduced_point = fieldMath.createPoint(
         fieldMath.Fp.mul(
-          g_points_x_mont_coords[i * b_num_threads + j],
+          g_points_x_mont_coords[i * b_workgroup_size + j],
           params.rinv,
         ),
         fieldMath.Fp.mul(
-          g_points_y_mont_coords[i * b_num_threads + j],
+          g_points_y_mont_coords[i * b_workgroup_size + j],
           params.rinv,
         ),
         fieldMath.Fp.mul(
-          g_points_t_mont_coords[i * b_num_threads + j],
+          g_points_t_mont_coords[i * b_workgroup_size + j],
           params.rinv,
         ),
         fieldMath.Fp.mul(
-          g_points_z_mont_coords[i * b_num_threads + j],
+          g_points_z_mont_coords[i * b_workgroup_size + j],
           params.rinv,
         ),
       );
@@ -728,7 +733,9 @@ const bpr_1 = async (
   debug = false,
 ) => {
   /// Uniform storage buffer.
-  const params_bytes = numbers_to_u8s_for_gpu([subtask_idx, num_columns]);
+  const params_bytes = numbers_to_u8s_for_gpu([
+    subtask_idx, num_columns, num_x_workgroups
+  ]);
   const params_ub = create_and_write_ub(device, params_bytes);
 
   const bindGroupLayout = create_bind_group_layout(device, [
@@ -813,7 +820,9 @@ const bpr_2 = async (
   debug = false,
 ) => {
   /// Uniform storage buffer.
-  const params_bytes = numbers_to_u8s_for_gpu([subtask_idx, num_columns]);
+  const params_bytes = numbers_to_u8s_for_gpu([
+    subtask_idx, num_columns, num_x_workgroups
+  ]);
   const params_ub = create_and_write_ub(device, params_bytes);
 
   const bindGroupLayout = create_bind_group_layout(device, [
