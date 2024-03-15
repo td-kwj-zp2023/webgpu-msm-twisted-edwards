@@ -282,7 +282,7 @@ export const compute_msm = async (
 
   /// This is a dynamic variable that determines the number of CSR
   /// matrices processed per invocation of the BPR shader. A safe default is 1.
-  const num_subtask_bpr_chunk_size = 2;
+  const num_subtask_bpr_chunk_size = 1;
 
   const b_num_x_workgroups = num_subtask_bpr_chunk_size;
   const b_num_y_workgroups = 1;
@@ -776,10 +776,29 @@ const bpr_1 = async (
   );
 
   /// Debug the output of the shader. This should **not** be run in production.
-  if (debug) {
-    debug_bpr_stage_one_shader(
-      device,
-      commandEncoder,
+  // if (true) {
+  //   debug_bpr_stage_one_shader(
+  //     device,
+  //     commandEncoder,
+  //     bucket_sum_x_sb,
+  //     bucket_sum_y_sb,
+  //     bucket_sum_t_sb,
+  //     bucket_sum_z_sb,
+  //     g_points_x_sb,
+  //     g_points_y_sb,
+  //     g_points_t_sb,
+  //     g_points_z_sb,
+  //     num_columns,
+  //     subtask_idx,
+  //     num_x_workgroups,
+  //     workgroup_size,
+  //   );
+  // }
+
+  if (
+    true
+  ) {
+    const data = await read_from_gpu(device, commandEncoder, [
       bucket_sum_x_sb,
       bucket_sum_y_sb,
       bucket_sum_t_sb,
@@ -788,11 +807,34 @@ const bpr_1 = async (
       g_points_y_sb,
       g_points_t_sb,
       g_points_z_sb,
-      num_columns,
-      subtask_idx,
-      num_x_workgroups,
-      workgroup_size,
-    );
+    ])
+
+    // The number of buckets per subtask
+    const n = num_columns / 2
+
+    const start = subtask_idx * n * num_words * 4
+    const end = (subtask_idx * n + n) * num_words * 4
+
+    const m_points_x_mont_coords = u8s_to_bigints(data[0].slice(start, end), num_words, word_size);
+    const m_points_y_mont_coords = u8s_to_bigints(data[1].slice(start, end), num_words, word_size);
+    const m_points_t_mont_coords = u8s_to_bigints(data[2].slice(start, end), num_words, word_size);
+    const m_points_z_mont_coords = u8s_to_bigints(data[3].slice(start, end), num_words, word_size);
+
+    console.log("m_points_x_mont_coords is: ", m_points_x_mont_coords)
+
+    const g_points_x_mont_coords = u8s_to_bigints(data[4], num_words, word_size);
+    const g_points_y_mont_coords = u8s_to_bigints(data[5], num_words, word_size);
+    const g_points_t_mont_coords = u8s_to_bigints(data[6], num_words, word_size);
+    const g_points_z_mont_coords = u8s_to_bigints(data[7], num_words, word_size);
+
+    // console.log("g_points_x_mont_coords is: ", g_points_x_mont_coords)
+    console.log("g_points_x_mont_coords is: ", data[4])
+
+
+    const original_bucket_sum_x_mont_coords = u8s_to_bigints(data[8].slice(start, end), num_words, word_size);
+    const original_bucket_sum_y_mont_coords = u8s_to_bigints(data[9].slice(start, end), num_words, word_size);
+    const original_bucket_sum_t_mont_coords = u8s_to_bigints(data[10].slice(start, end), num_words, word_size);
+    const original_bucket_sum_z_mont_coords = u8s_to_bigints(data[11].slice(start, end), num_words, word_size);
   }
 };
 
@@ -1094,6 +1136,8 @@ const debug_bpr_stage_one_shader = async (
   num_x_workgroups: number,
   workgroup_size: number,
 ) => {
+  console.log("entered debug_bpr_stage_one_shader!");
+
   const original_bucket_sum_x_sb = create_sb(device, bucket_sum_x_sb.size);
   const original_bucket_sum_y_sb = create_sb(device, bucket_sum_y_sb.size);
   const original_bucket_sum_t_sb = create_sb(device, bucket_sum_t_sb.size);
@@ -1170,10 +1214,14 @@ const debug_bpr_stage_one_shader = async (
     word_size,
   );
 
+  console.log("m_points_x_mont_coords: ", m_points_x_mont_coords)
+
   const g_points_x_mont_coords = u8s_to_bigints(data[4], num_words, word_size);
   const g_points_y_mont_coords = u8s_to_bigints(data[5], num_words, word_size);
   const g_points_t_mont_coords = u8s_to_bigints(data[6], num_words, word_size);
   const g_points_z_mont_coords = u8s_to_bigints(data[7], num_words, word_size);
+
+  console.log("g_points_x_mont_coords: ", g_points_x_mont_coords)
 
   const original_bucket_sum_x_mont_coords = u8s_to_bigints(
     data[8].slice(start, end),
