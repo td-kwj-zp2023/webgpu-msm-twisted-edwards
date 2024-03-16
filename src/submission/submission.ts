@@ -230,7 +230,7 @@ export const compute_msm = async (
 
   /// This is a dynamic variable that determines the number of CSR
   /// matrices processed per invocation of the shader. A safe default is 1.
-  const num_subtask_chunk_size = 1;
+  const num_subtask_chunk_size = 4;
 
   /// Buffers that store the SMVP result, ie. bucket sums. They are
   /// overwritten per iteration.
