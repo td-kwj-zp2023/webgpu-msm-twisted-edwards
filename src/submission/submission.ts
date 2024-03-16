@@ -280,15 +280,18 @@ export const compute_msm = async (
   /// followed by a scalar multiplication (Algorithm 4 of the cuZK paper).                    /
   /////////////////////////////////////////////////////////////////////////////////////////////
 
-  const b_num_x_workgroups = 1;
+  /// This is a dynamic variable that determines the number of CSR
+  /// matrices processed per invocation of the BPR shader. A safe default is 1.
+  const num_subtasks_per_bpr_1 = 16
+
+  const b_num_x_workgroups = num_subtasks_per_bpr_1;
   const b_num_y_workgroups = 1;
   const b_num_z_workgroups = 1;
   const b_workgroup_size = 256;
-  const b_num_threads = b_num_x_workgroups * b_workgroup_size;
 
   /// Buffers that store the bucket points reduction (BPR) output.
   const g_points_coord_bytelength =
-    num_subtasks * b_num_threads * num_words * 4;
+    num_subtasks * b_workgroup_size * num_words * 4;
   const g_points_x_sb = create_sb(device, g_points_coord_bytelength);
   const g_points_y_sb = create_sb(device, g_points_coord_bytelength);
   const g_points_t_sb = create_sb(device, g_points_coord_bytelength);
@@ -297,7 +300,7 @@ export const compute_msm = async (
   const bpr_shader = shaderManager.gen_bpr_shader(b_workgroup_size);
 
   /// Stage 1: Bucket points reduction (BPR)
-  for (let subtask_idx = 0; subtask_idx < num_subtasks; subtask_idx++) {
+  for (let subtask_idx = 0; subtask_idx < num_subtasks; subtask_idx += num_subtasks_per_bpr_1) {
     await bpr_1(
       bpr_shader,
       subtask_idx,
@@ -319,14 +322,17 @@ export const compute_msm = async (
     );
   }
 
+  const num_subtasks_per_bpr_2 = 16;
+  const b_2_num_x_workgroups = num_subtasks_per_bpr_2;
+
   /// Stage 2: Bucket points reduction (BPR).
-  for (let subtask_idx = 0; subtask_idx < num_subtasks; subtask_idx++) {
+  for (let subtask_idx = 0; subtask_idx < num_subtasks; subtask_idx += num_subtasks_per_bpr_2) {
     await bpr_2(
       bpr_shader,
       subtask_idx,
-      b_num_x_workgroups,
-      b_num_y_workgroups,
-      b_num_z_workgroups,
+      b_2_num_x_workgroups,
+      1,
+      1,
       b_workgroup_size,
       num_columns,
       device,
@@ -362,22 +368,22 @@ export const compute_msm = async (
 
   for (let i = 0; i < num_subtasks; i++) {
     let point = fieldMath.customEdwards.ExtendedPoint.ZERO;
-    for (let j = 0; j < b_num_threads; j++) {
+    for (let j = 0; j < b_workgroup_size; j++) {
       const reduced_point = fieldMath.createPoint(
         fieldMath.Fp.mul(
-          g_points_x_mont_coords[i * b_num_threads + j],
+          g_points_x_mont_coords[i * b_workgroup_size + j],
           params.rinv,
         ),
         fieldMath.Fp.mul(
-          g_points_y_mont_coords[i * b_num_threads + j],
+          g_points_y_mont_coords[i * b_workgroup_size + j],
           params.rinv,
         ),
         fieldMath.Fp.mul(
-          g_points_t_mont_coords[i * b_num_threads + j],
+          g_points_t_mont_coords[i * b_workgroup_size + j],
           params.rinv,
         ),
         fieldMath.Fp.mul(
-          g_points_z_mont_coords[i * b_num_threads + j],
+          g_points_z_mont_coords[i * b_workgroup_size + j],
           params.rinv,
         ),
       );
@@ -498,7 +504,7 @@ export const convert_point_coords_and_decompose_shaders = async (
 
   /// Debug the output of the shader. This should **not** be run in production.
   if (debug) {
-    debug_point_conv_and_scalar_decomp_shader(
+    await debug_point_conv_and_scalar_decomp_shader(
       device,
       commandEncoder,
       point_x_sb,
@@ -587,7 +593,7 @@ export const transpose_gpu = async (
 
   /// Debug the output of the shader. This should **not** be run in production.
   if (debug) {
-    debug_transpose_shader(
+    await debug_transpose_shader(
       device,
       commandEncoder,
       scalar_chunks_sb,
@@ -681,7 +687,7 @@ export const smvp_gpu = async (
 
   /// Debug the output of the shader. This should **not** be run in production.
   if (debug) {
-    debug_smvp_shader(
+    await debug_smvp_shader(
       device,
       commandEncoder,
       all_csc_col_ptr_sb,
@@ -728,7 +734,9 @@ const bpr_1 = async (
   debug = false,
 ) => {
   /// Uniform storage buffer.
-  const params_bytes = numbers_to_u8s_for_gpu([subtask_idx, num_columns]);
+  const params_bytes = numbers_to_u8s_for_gpu([
+    subtask_idx, num_columns, num_x_workgroups
+  ]);
   const params_ub = create_and_write_ub(device, params_bytes);
 
   const bindGroupLayout = create_bind_group_layout(device, [
@@ -773,7 +781,7 @@ const bpr_1 = async (
 
   /// Debug the output of the shader. This should **not** be run in production.
   if (debug) {
-    debug_bpr_stage_one_shader(
+    await debug_bpr_stage_one_shader(
       device,
       commandEncoder,
       bucket_sum_x_sb,
@@ -813,7 +821,9 @@ const bpr_2 = async (
   debug = false,
 ) => {
   /// Uniform storage buffer.
-  const params_bytes = numbers_to_u8s_for_gpu([subtask_idx, num_columns]);
+  const params_bytes = numbers_to_u8s_for_gpu([
+    subtask_idx, num_columns, num_x_workgroups
+  ]);
   const params_ub = create_and_write_ub(device, params_bytes);
 
   const bindGroupLayout = create_bind_group_layout(device, [
@@ -858,7 +868,7 @@ const bpr_2 = async (
 
   /// Debug the output of the shader. This should **not** be run in production.
   if (debug) {
-    debug_bpr_stage_two_shader(
+    await debug_bpr_stage_two_shader(
       device,
       commandEncoder,
       bucket_sum_x_sb,
@@ -1143,7 +1153,8 @@ const debug_bpr_stage_one_shader = async (
   const n = num_columns / 2;
   const start = subtask_idx * n * num_words * 4;
   const end = (subtask_idx * n + n) * num_words * 4;
-  const num_threads = num_x_workgroups * workgroup_size;
+  //const num_threads = num_x_workgroups * workgroup_size;
+  const num_threads = workgroup_size;
 
   const m_points_x_mont_coords = u8s_to_bigints(
     data[0].slice(start, end),
@@ -1243,6 +1254,7 @@ const debug_bpr_stage_one_shader = async (
     original_bucket_sums,
     num_threads,
   );
+
   for (let i = 0; i < expected.g_points.length; i++) {
     assert(g_points[i].equals(expected.g_points[i]), `mismatch at ${i}`);
   }
