@@ -19,21 +19,27 @@ Ensure you have:
 - [Node.js](https://nodejs.org) 16 or later installed
 - [Yarn](https://yarnpkg.com) v1 or v2 installed
 
-Then run the following:
-
-### 1) Clone the repository
+### 1) Clone the repositories
 
 ```bash
-git clone https://github.com/demox-labs/webgpu-msm && cd webgpu-msm
+git clone https://github.com/td-kwj-zp2023/webgpu-msm-twisted-edwards
+git clone https://github.com/demox-labs/webgpu-msm
 ```
 
-### 2) Install dependencies
+### 2) Copy the data
 
 ```bash
+cp -r webgpu-msm/public/test-data webgpu-msm-twisted-edwards/public
+```
+
+### 3) Install dependencies
+
+```bash
+cd webgpu-msm-twisted-edwards
 yarn
 ```
 
-### 3) Development
+### 4) Start server
 
 Run a local server on localhost:4040.
 
